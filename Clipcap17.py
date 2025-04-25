@@ -140,8 +140,8 @@ def is_image_file(filename):
 
 if __name__ == '__main__':
     #  ---  使用示例  ---
-    image_folder = "data/k-shot-has-aspect-num-ACL-2023/twitter_2015/images/test"  #  <---  **请替换为你的图片文件夹路径**
-    output_json_file = "data/twitter2015_image_captions.json"  #  输出 JSON 文件名 (可以自定义)
+    image_folder = "data/k-shot-has-aspect-num-ACL-2023/twitter_2017/images/test"  #  <---  **请替换为你的图片文件夹路径**
+    output_json_file = "data/twitter2017_image_captions.json"  #  输出 JSON 文件名 (可以自定义)
 
     # 处理文件夹并生成字幕 JSON 文件
     process_folder_and_generate_captions(image_folder, output_json_file)

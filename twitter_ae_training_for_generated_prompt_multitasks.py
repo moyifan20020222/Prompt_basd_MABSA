@@ -435,7 +435,7 @@ def parse_args():
     parser.add_argument('--num_image_tokens', type=int, default=2, help='the length of image_tokens')
     parser.add_argument('--use_multitasks', action='store_true', default=False, help='whether use multitasks')
     parser.add_argument('--loss_lambda', default=0.1, type=float, help='the weight of aspect_num classification loss')
-    parser.add_argument('--use_caption', action='store_true', default=True, help='whether use image caption')
+    parser.add_argument('--use_caption', type=str, default=True, help='whether use image caption')
     parser.add_argument('--Prompt_Pool_num', type=int, default=8, help="The number of PromptPool")
     parser.add_argument('--diversity_loss_weight', type=float, default=0.1, help='The weight of diversity_loss')
     parser.add_argument('--l2_reg_weight', type=float, default=0.00001, help='The weight of l2_reg')

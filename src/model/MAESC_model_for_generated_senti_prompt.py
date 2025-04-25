@@ -139,6 +139,16 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                                                   only_sc=False)
         self.span_loss_fct = Span_loss()
         self.mlm_loss_module = MultiModalBartDecoder_MLM(self.config, self.senti_prompt_decoder.decoder)
+        # 字幕与文本的相关度计算
+        self.text_caption_cross_attention = nn.MultiheadAttention(embed_dim=self.config.hidden_size, num_heads=8,
+                                                                  batch_first=True)
+        self.text_caption_attn_output_projection = nn.Linear(self.config.hidden_size, 1)  # 示例：将池化后的输出投影到 1 维
+        # 定义相关度阈值
+        if args.dataset[0][0] == 'twitter15':
+            self.threshold = 0.6
+        elif args.dataset[0][0] == 'twitter17':
+            self.threshold = 0.85
+
 
     def prepare_state(self,
                       input_ids,
@@ -149,6 +159,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       sentence_mask=None,
                       image_mask=None,
                       mlm_message=None,
+                      image_caption_valid=None,
+                      image_caption_mask=None,
+                      score=None,
                       first=None):
         ##generate prompt for each instance
         # ResNet给出的图像表示会放在Prompt的最前面，所以后面的长度固定的情况下，可以指定特殊标记的位置了
@@ -188,6 +201,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         # 本部分是把图像表示 -: 投影到文本BART处理格式 再经过BART的encoder处理得到的 图像表示 此外inputs_id代表了文本模态的信息。
         # Tips： 在代码实现中，好像没有看到原文提到的CLIPCAP提取图像直接得到图像字幕的部分， 也许混在了inputs_ids中了吗 好像直接就不要了，就直接用到文本模态即可。
         # inputs_id已经预先放置了Prompt的模板，后续只需要
+
         dict_for_prompt = self.senti_prompt_encoder(input_ids=input_ids,
                                                     image_features=image_features,
                                                     attention_mask=prompt_attention_mask,
@@ -195,6 +209,108 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                                                     return_dict=True)
         # print("仅有图像特征输入的情况下的编码结果", dict_for_prompt.last_hidden_state.shape)
 
+        #  通过计算字幕与文本的相关度，让图片特征的信息相应的减少
+        # print("image_caption_mask:", image_caption_mask)
+        image_caption_mask_expanded_for_image = image_caption_mask.unsqueeze(-1).to(
+            attention_mask.device)  # 为图像 mask 扩展维度
+        image_caption_embeddings = dict_for_prompt.last_hidden_state * image_caption_mask_expanded_for_image.float()  # 提取图像嵌入
+        image_caption = image_caption_embeddings.to(attention_mask.device)  # [s, b, 768]  图像字幕嵌入，准备作为 Key/Value
+
+        # 文本嵌入
+        sentence_mask_expanded_for_image = sentence_mask.unsqueeze(-1).to(attention_mask.device)  # 为图像 mask 扩展维度
+        text_embeddings = dict_for_prompt.last_hidden_state * sentence_mask_expanded_for_image.float()  # 提取图像嵌入
+        text = text_embeddings.to(attention_mask.device)  # [s, b, 768]  图像字幕嵌入，准备作为 Key/Value
+        # 图像嵌入
+        image_mask_expanded_for_image = image_mask.unsqueeze(-1).to(attention_mask.device)  # 为图像 mask 扩展维度
+        image_embeddings = dict_for_prompt.last_hidden_state * image_mask_expanded_for_image.float()  # 提取图像嵌入
+        image = image_embeddings.to(attention_mask.device)  # [s, b, 768]  图像字幕嵌入，准备作为 Key/Value
+        relevance_scores = torch.zeros(image_caption_mask.size(0), 1, device=input_ids.device)  # 初始化相关度得分张量 (形状 [b, 1])
+        # print("image_caption_valid 维度", image_caption_mask.size())
+        # print("图片特征长度", len(image_features))
+        loss_crd = torch.tensor(0.0, dtype=torch.float)
+        valid_indices = torch.where(image_caption_valid)[0]
+        # print("valid_indices", valid_indices.size())
+        # print("score", score.size())
+        num_valid = len(valid_indices)
+        batch_size = image_caption_mask.size(0)
+        # 使用 logits 计算损失，使用 scores 进行门控
+        crd_logits_all = torch.zeros(batch_size, 1, device=attention_mask.device)  # 默认logit为0，对应sigmoid(0)=0.5
+        relevance_scores_all = torch.full((batch_size, 1), self.threshold, device=attention_mask.device)  # 默认得分0.5 (或根据你的策略设为0.0或1.0)
+        if num_valid > 0:
+            # 2. 提取有效样本的数据
+            valid_text_emb = text[valid_indices].to(attention_mask.device)  # [num_valid, seq_len_text, hidden_size]
+            valid_caption_emb = image_caption[valid_indices].to(attention_mask.device)  # [num_valid, max_len, hidden_size]
+            valid_text_mask = sentence_mask[valid_indices].to(attention_mask.device)  # [num_valid, max_len]
+            # **关键: MultiheadAttention 的 key_padding_mask 需要 True 表示 Padding 位置**
+            # 假设你的 mask 是 1 表示有效, 0 表示 padding, 需要转换
+            valid_caption_padding_mask = (
+                        image_caption_mask[valid_indices] == 0).to(attention_mask.device)  # [num_valid, max_len], True for padding
+
+            # 3. 批处理交叉注意力 (假设 batch_first=True)
+            # query: text, key/value: caption
+            attn_output_valid, _ = self.text_caption_cross_attention(
+                query=valid_text_emb,
+                key=valid_caption_emb,
+                value=valid_caption_emb,
+                key_padding_mask=valid_caption_padding_mask  # ****** 提供正确的 Mask ******
+            )  # Output: [num_valid, max_len, hidden_size]
+
+            # 4. 批处理屏蔽平均池化
+            # 将 padding 位置的 attention output 置零
+            attn_output_valid_masked = attn_output_valid * valid_text_mask.unsqueeze(-1).float().to(attention_mask.device)
+            # 计算每个样本的有效长度
+            text_lengths_valid = valid_text_mask.sum(dim=1, keepdim=True).float().to(attention_mask.device)  # [num_valid, 1]
+            # 对有效位置求和
+            sum_attn_output_valid = attn_output_valid_masked.sum(dim=1).to(attention_mask.device)  # [num_valid, hidden_size]
+            # 计算平均值，防止除零
+            mean_attn_output_valid = sum_attn_output_valid / torch.clamp(text_lengths_valid,
+                                                                         min=1e-9)  # [num_valid, hidden_size]
+
+            # 5. 批处理线性投影，得到 Logits
+            logits_valid = self.text_caption_attn_output_projection(mean_attn_output_valid)  # [num_valid, 1]
+
+            # 6. 计算有效样本的相关性得分 (用于门控)
+            scores_valid = torch.sigmoid(logits_valid).to(attention_mask.device)  # [num_valid, 1]
+
+            # 7. 计算 CRD 损失 (仅针对有效样本)
+            target_labels_valid = score[valid_indices].unsqueeze(1).to(attention_mask.device)  # [num_valid, 1]
+            # binary_scores_valid = (target_labels_valid > self.threshold).float().unsqueeze(-1).to(attention_mask.device)
+            # binary_logits_valid = (scores_valid > self.threshold).float().unsqueeze(-1).to(attention_mask.device)
+            # print("二元判别：标注 and 计算的", binary_scores_valid, binary_logits_valid)
+            # criterion_crd = nn.BCEWithLogitsLoss()
+            criterion_crd = nn.MSELoss()
+            loss_crd = criterion_crd(scores_valid, target_labels_valid)
+
+            # 8. 更新完整批次的 logits 和 scores
+            # 使用 scatter_ 或 index_put_ 更新特定索引的值
+            crd_logits_all[valid_indices] = logits_valid
+            relevance_scores_all[valid_indices] = scores_valid
+
+        # 9. 使用相关性得分调整 image_features (向量化)
+        # 确定广播维度，假设 image_features 是 [batch_size, num_patches, img_hidden]
+        gating_scores = relevance_scores_all.unsqueeze(1).to(attention_mask.device)  # 调整为 [batch_size, 1, 1] 以便广播
+        # 或者如果 image_features 是 [batch_size, img_hidden]
+        # gating_scores = relevance_scores_all # 调整为 [batch_size, 1]
+        # print("gating_scores", gating_scores)
+        # print("image_features", )
+        for i in range(batch_size):
+            image_features[i] = gating_scores[i] * image_features[i]
+
+        weighted_image_tokens = image * gating_scores  # 逐元素相乘进行加权
+        # print("image的维度", image.size())
+        # print("计算的token结果", weighted_image_tokens.size())
+        # print("dict_for_prompt.last_hidden_state", dict_for_prompt.last_hidden_state.size())
+        encoder_outputs = dict_for_prompt.last_hidden_state
+        mask_expanded_encoder = image_mask_expanded_for_image.repeat(1, 1, image.size(2)).to(attention_mask.device)
+        dict_for_prompt.last_hidden_state = encoder_outputs.masked_scatter(
+            mask_expanded_encoder,
+            weighted_image_tokens[mask_expanded_encoder]
+        )
+        # print("计算的 权重 ： ", relevance_weights)
+        # TODO: 有个问题， 后续的字幕信息我们也一起作为了encoder的输入， 它的信息如何处理， 方案1、因为这两者 表达内容接近，可以采用一个门控机制学习
+        # 2、直接认为这个字幕信息就是一个中间内容，计算出图片和文本的相关度后就可以丢弃了， 那为了保证结构统一，可以直接在此乘0，或是mask为0即可。
+
+        # --------------
         prompt_decoder_input_ids, prompt_decoder_attention_mask = [
             aesc_infos['senti_prompt_decoder_input_ids'].to(input_ids.device),
             aesc_infos['senti_prompt_decoder_attention_mask'].to(input_ids.device)]
@@ -225,6 +341,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                                            decoder_attention_mask=mlm_decoder_attention_mask)
 
         # 至此已经组合得到了完整的Prompt ，需要再次经过Encoder进行编码 所以这里的编码只需要把需要组合的内容，一起拿到即可，所以generated_prompt 代表Ps
+        # 这里同样做出修改，这里的图像嵌入，就需要用第一个encoder的结果使用了，不必重新计算一次。
         dict = self.encoder(input_ids=input_ids,
                             image_features=image_features,
                             attention_mask=attention_mask,
@@ -251,7 +368,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             end_index)  # 其封装函数见下方  这里做一个修改，源代码并没有特殊处理end_index的部分， 而是直接用64代替
         # 这只能处理image_token=2 的一种情况。故做出修改。
         # setattr(state, 'tgt_seq_len', tgt_seq_len)
-        return state, diversity_loss, l2_reg_loss, pseudo_loss
+        return state, diversity_loss, l2_reg_loss, pseudo_loss, loss_crd
 
     def forward(
             self,
@@ -263,6 +380,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             sentence_mask=None,
             image_mask=None,
             mlm_message=None,
+            image_caption_valid=None,
+            image_caption_mask=None,
+            score=None,
             encoder_outputs: Optional[Tuple] = None,
             use_cache=None,
             output_attentions=None,
@@ -274,9 +394,12 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         ## for aspect-spans  这里是ASC任务模型的运行部分：
         # 在单单情绪分析任务下， 方面数目和索引由数据集 直接给出
         aspects_num = torch.tensor(aspects_num).to(input_ids.device)
-        state, diversity_loss, l2_reg_loss, pseudo_loss = self.prepare_state(input_ids, image_features, attention_mask, aesc_infos,
-                                                                aspects_num,
-                                                                sentence_mask, image_mask, mlm_message)
+        state, diversity_loss, l2_reg_loss, pseudo_loss, loss_crd = self.prepare_state(input_ids, image_features, attention_mask,
+                                                                             aesc_infos,
+                                                                             aspects_num,
+                                                                             sentence_mask, image_mask, mlm_message,
+                                                                             image_caption_valid,
+                                                                             image_caption_mask, score)
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),
             aesc_infos['masks'].to(input_ids.device)
@@ -285,8 +408,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         logits = self.decoder(spans, state)  ## spans: (2, 13) logits: (2, 12, 40)
 
         loss = self.span_loss_fct(spans[:, 1:], logits, span_mask[:, 1:])
-        print("三个loss", loss, diversity_loss, l2_reg_loss)
-        all_loss = loss + diversity_loss + l2_reg_loss
+        print("四个loss", loss.item(), diversity_loss.item(), l2_reg_loss.item(), loss_crd.item())
+        
+        all_loss = loss + diversity_loss + l2_reg_loss + loss_crd
         return all_loss, aspects_num, pseudo_loss  # 同样的 源代码少了一个参数， 因为ASC任务只检测情绪极性，所以aspect_num 直接使用结果即可。
 
 

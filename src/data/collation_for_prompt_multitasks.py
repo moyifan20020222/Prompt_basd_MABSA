@@ -170,7 +170,11 @@ class Collator:
         # 新增部分
         output['sentence_mask'] = encoded_conditions['sentence_mask']
         output['my_image_mask'] = encoded_conditions['my_image_mask']
-
+        output['image_caption_valid'] = encoded_conditions['image_caption_valid']
+        output['image_caption_mask'] = encoded_conditions['image_caption_mask']
+        # 增加的相关性程度
+        score_list = [x['score'] for x in batch]
+        output['score'] = torch.tensor(score_list).float()
         if self._has_label:
             # encode mrm and mlm labels
             if self._mlm_enabled:

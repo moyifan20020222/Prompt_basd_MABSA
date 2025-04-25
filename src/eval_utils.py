@@ -28,7 +28,10 @@ def eval(args, model, loader, metric, device):
             aspects_num=batch['aspects_num'],
             sentence_mask=batch['sentence_mask'],  # 用于实现文本部分的截取，完成我们的Prompt修正SPD模块的内容、
             image_mask=batch['my_image_mask'],
-            mlm_message=batch['MLM']
+            mlm_message=batch['MLM'],
+            image_caption_valid=batch['image_caption_valid'],
+            image_caption_mask=batch['image_caption_mask'],
+            score=batch['score']
         )
         # 返回结果为序列生成的结果。
         # print('predict is {}'.format(predict))

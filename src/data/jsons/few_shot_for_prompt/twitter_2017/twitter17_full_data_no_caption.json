@@ -1,0 +1,4 @@
+{
+  "data_dir": "data/twitter_2017/full_data_no_caption",
+  "img_region_dir": "data/k-shot-has-aspect-num-ACL-2023/twitter_2017"
+}

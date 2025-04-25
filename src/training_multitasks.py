@@ -152,6 +152,9 @@ def fine_tune(epoch,
             # ASC任务包括了 labels （三元组结果） mask labels的 掩码 spans 三元组提取的结果
             # senti_prompt_decoder_input_ids 和 senti_prompt_decoder_attention_mask 指示最后生成的情绪Prompt
             # print("当前使用的模型是:", model)
+            # print("image_caption_mask:", batch['image_caption_mask'].size())
+            # print("image_caption_valid:", batch['image_caption_valid'])
+
             loss, predict_aspects_num, pseudo_loss = model.forward(
                 input_ids=batch['input_ids'].to(device),
                 image_features=list(
@@ -159,9 +162,12 @@ def fine_tune(epoch,
                 attention_mask=batch['attention_mask'].to(device),
                 aesc_infos=aesc_infos, 
                 aspects_num=batch['aspects_num'],
-                sentence_mask=batch['sentence_mask'],  # shibie
+                sentence_mask=batch['sentence_mask'],  # 识别句子位置
                 image_mask=batch['my_image_mask'],  # 识别图片token部分
-                mlm_message=batch['MLM']  # 用于计算MLM损失的信息
+                mlm_message=batch['MLM'],  # 用于计算MLM损失的信息
+                image_caption_valid=batch['image_caption_valid'],
+                image_caption_mask=batch['image_caption_mask'],
+                score=batch['score']
             )
             target_aspects_num = torch.tensor(batch['aspects_num']).to(predict_aspects_num.device)
             if args.task == 'twitter_sc':

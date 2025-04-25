@@ -93,6 +93,9 @@ class SequenceGeneratorModel(nn.Module):
                 sentence_mask=None,
                 image_mask=None,
                 mlm_message=None,
+                image_caption_valid=None,
+                image_caption_mask=None,
+                score=None,
                 first=None):
         """
         透传调用seq2seq_model的forward
@@ -111,7 +114,11 @@ class SequenceGeneratorModel(nn.Module):
                                   aspects_num=aspects_num,
                                   sentence_mask=sentence_mask,
                                   image_mask=image_mask,
-                                  mlm_message=mlm_message)
+                                  mlm_message=mlm_message,
+                                  image_caption_valid=image_caption_valid,
+                                  image_caption_mask=image_caption_mask,
+                                  score=score
+                                  )
 
     def predict(self,
                 input_ids,
@@ -121,7 +128,10 @@ class SequenceGeneratorModel(nn.Module):
                 aspects_num=None,
                 sentence_mask=None,
                 image_mask=None,
-                mlm_message=None):
+                mlm_message=None,
+                image_caption_valid=None,
+                image_caption_mask=None,
+                score=None):
         """
         给定source的内容，输出generate的内容
         sentence_mask 用于指示
@@ -137,11 +147,12 @@ class SequenceGeneratorModel(nn.Module):
         #                                          aesc_infos,
         #                                          aspects_num)
         # 同样的 因为在改Prepare_state中 需要传递损失，所以这里的返回值也做出修改，不过测试阶段并不需要这些损失。
-        state, diversity_loss, l2_reg_loss, pseudo_loss = self.BART_model.prepare_state(
+        state, diversity_loss, l2_reg_loss, pseudo_loss, loss_crd = self.BART_model.prepare_state(
             input_ids, image_features,
             attention_mask,
             aesc_infos,
-            aspects_num, sentence_mask, image_mask, mlm_message)
+            aspects_num, sentence_mask, image_mask, mlm_message, image_caption_valid,
+            image_caption_mask, score)
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)
         # print("预测时的信息 tgt_tokens", tgt_tokens)
         # print("前三个token 和后面的信息", tgt_tokens[:, :3], tgt_tokens[:, 3:])

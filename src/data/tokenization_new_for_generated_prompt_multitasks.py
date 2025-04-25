@@ -50,7 +50,8 @@ class ConditionTokenizer:
                  ANP_generate_token='<<AOG>>',
                  mask_token='<<MASK>>',
                  aspect_prompt_token_front='<<AE_PROMPT_FRONT>>',
-                 aspect_prompt_token_end='<<AE_PROMPT_END>>'):
+                 aspect_prompt_token_end='<<AE_PROMPT_END>>',
+                 invalid_caption_token='<<INVALID_CAPTION>>'):
         self._base_tokenizer = BartTokenizer.from_pretrained(
             pretrained_model_name, )
         # self._base_tokenizer = AutoTokenizer.from_pretrained(
@@ -64,7 +65,7 @@ class ConditionTokenizer:
             pos_token, neu_token, neg_token, ae_oe_token, sep_token,
             aesc_token, ae_token, sc_token, 
             aspect_prompt_token, senti_prompt_token, begin_prompt, end_prompt,
-            aspect_prompt_token_front, aspect_prompt_token_end
+            aspect_prompt_token_front, aspect_prompt_token_end, invalid_caption_token
         ]
         unique_no_split_tokens = self._base_tokenizer.unique_no_split_tokens
         self._base_tokenizer.unique_no_split_tokens = unique_no_split_tokens + self.additional_special_tokens
@@ -105,6 +106,7 @@ class ConditionTokenizer:
         self.begin_prompt = begin_prompt
         self.end_prompt = end_prompt
         self.aspects_num_token = aspects_num_token
+        self.invalid_caption_token = invalid_caption_token
 
         self.mask_token = mask_token
         self.mask_token_id = self.convert_tokens_to_ids(mask_token)
@@ -142,6 +144,7 @@ class ConditionTokenizer:
         self.begin_prompt_id = self.convert_tokens_to_ids(begin_prompt)
         self.end_prompt_id = self.convert_tokens_to_ids(end_prompt)
         self.aspects_num_token_id = self.convert_tokens_to_ids(aspects_num_token)
+        self.invalid_caption_token_id = self.convert_tokens_to_ids(invalid_caption_token)
 
         self.vocab_size = self._base_tokenizer.vocab_size
         self.bos_token = self._base_tokenizer.bos_token
@@ -310,7 +313,7 @@ class ConditionTokenizer:
                                 self.pad_token_id,
                                 dtype=torch.long)
         mask = torch.zeros(pad_result.size(), dtype=torch.bool)
-     
+
         for i, x in enumerate(tokens):
             # print(x)
             pad_result[i, :len(x)] = torch.tensor(tokens[i], dtype=torch.long)
@@ -381,6 +384,7 @@ class ConditionTokenizer:
                 # 这里得到的是一个特殊字段
 
         # import ipdb; ipdb.set_trace()
+        image_caption_valid = []  # 用0 1 判断字幕是否是正确的信息
         if caption is not None:
             if not isinstance(caption, list):
                 caption = [caption]
@@ -393,8 +397,8 @@ class ConditionTokenizer:
                 '''
                 # print("+++++++++++++++++++++split before ++++++++++++++++++++++++")
                 # print(len(split))
-                if len(split)>10:
-                    split = split[:10]
+                if len(split) > 12:
+                    split = split[:12]
                 # print("+++++++++++++++++++++split after ++++++++++++++++++++++++")
                 # print(len(split))
                 # print(split)
@@ -413,6 +417,22 @@ class ConditionTokenizer:
                 caption_word_bpes.append([self.end_caption_id])
 
                 _caption_word_bpes = list(chain(*caption_word_bpes))
+                if split[0] == self.invalid_caption_token:
+                    image_caption_valid.append(0)
+                elif len(_caption_word_bpes) > 20:
+                    print("出现了错误的字幕信息，直接丢弃")
+                    is_bpes = self._base_tokenizer.tokenize('is',
+                                                            add_prefix_space=True)
+                    is_bpes = self._base_tokenizer.convert_tokens_to_ids(is_bpes)  ##[16]
+                    caption_word_bpes = [is_bpes]
+
+                    caption_word_bpes.append([self.begin_caption_id])
+                    _caption_word_bpes.append([self.invalid_caption_token_id])
+                    caption_word_bpes.append([self.end_caption_id])
+                    _caption_word_bpes = list(chain(*caption_word_bpes))
+                    image_caption_valid.append(0)
+                else:
+                    image_caption_valid.append(1)
                 image_caption_tokens.append(_caption_word_bpes.copy())
 
         if sentence is not None:
@@ -717,6 +737,16 @@ class ConditionTokenizer:
         # 此处的特殊标记id是 begin_img_id 和 end_img_id  为了防止可能的重名，换个名字
 
         # 为了截取 image 在文本模态上的嵌入表示， 和文本的sentence_mask一样，做同样的操作
+        caption_mask = torch.zeros(input_ids.size(), dtype=torch.bool)
+        if caption is not None:
+            caption_mask = torch.zeros(input_ids.size(), dtype=torch.bool)
+            for index, value in enumerate(input_ids):
+                start = (value == self.begin_caption_id).nonzero(as_tuple=True)[0]
+                end = (value == self.end_caption_id).nonzero(as_tuple=True)[0]
+                caption_mask[index, start + 1:end] = True
+        image_caption_valid = torch.tensor(image_caption_valid, dtype=torch.long)
+        encoded['image_caption_valid'] = image_caption_valid
+        encoded['image_caption_mask'] = caption_mask
 
         return encoded
 
@@ -1051,8 +1081,10 @@ class ConditionTokenizer:
             # print(text)
             # print(len(cum_lens), len(text.split()))
             gt = []
+            # print("文本", text)
+            # print("总长度", len(cum_lens))
             for x in span:
-
+                # print("首尾索引", x[0], x[1], x[1] - 1)
                 s_bpe = cum_lens[x[0]] + target_shift
                 e_bpe = cum_lens[x[1] - 1] + target_shift
                 cur_text.append(s_bpe)

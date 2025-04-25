@@ -178,7 +178,8 @@ def main(rank, args):
                             anp_enabled=False,
                             max_img_num=args.num_image_tokens,
                             has_prompt=args.has_prompt,
-                            text_only=args.text_only)
+                            text_only=args.text_only,
+                            use_caption=args.use_caption)
 
     train_dataset = Twitter_Dataset(args.dataset[0][1], split='train', image_model_name=image_model_name)
     dev_dataset = Twitter_Dataset(args.dataset[0][1], split='dev', image_model_name=image_model_name)
@@ -446,7 +447,7 @@ def parse_args():
     parser.add_argument('--use_generated_senti_prompt',  action='store_true', default=True, help='whether use the generated sentiment prompt')
     parser.add_argument('--use_different_senti_prompt', action='store_false', default=False, help='whether use different prompt for different aspects in an instance')
     parser.add_argument('--use_different_aspect_prompt', action='store_true', default=True, help='whether use different prompt for different aspects in an instance')
-
+    parser.add_argument('--use_caption', type=str, default=True, help='whether use image caption')
     parser.add_argument('--use_multitasks', action='store_true', default=True, help='whether use multitasks')
     parser.add_argument('--loss_lambda', default=0.1, type=float, help='the weight of aspect_num classification loss')
     # 新增部分：1、情绪Prompt池大小 2、用于更新Prompt池部分的损失函数， 包括多样性损失权重和正则化损失权重

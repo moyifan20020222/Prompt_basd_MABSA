@@ -240,7 +240,7 @@ class Twitter_Dataset(data.Dataset):
 
         output['image_pixel_values'] = image_pixel_values.squeeze()
         output['aspects_num'] = data['aspects_num']
-
+        output['score'] = data['score']
         # import ipdb; ipdb.set_trace()
         # print("-----------------------output-------------------------")
         # print(output)

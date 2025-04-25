@@ -129,6 +129,58 @@ def _d_image_encoder(image_encoder_type, image_model_name, image_encoder):
         raise ValueError(f"不支持的图像编码器类型或模型名称: type={image_encoder_type}, name={image_model_name}")
 
 
+def get_multiscale_features_from_encoder(image_encoder, pixel_values, image_encoder_type, num_image_token):
+    """
+    根据图像编码器类型，从骨干网络提取多尺度特征表示 (可以是特征图或 Token 序列)。
+    返回一个列表，每个元素是形状 (batch_size, C, H, W) 或 (batch_size, num_tokens, C) 的 Tensor。
+    """
+    multi_scale_features = []
+
+    if image_encoder_type.lower() == 'timm' and image_encoder.name.startswith('vit_'):  # 针对 timm 的 ViT
+        #  从 patch_embed 获取初始 Token 序列
+        x = image_encoder.patch_embed(pixel_values)
+        #  检查是否有 cls_token 和 pos_embed
+        if hasattr(image_encoder, 'cls_token') and image_encoder.cls_token is not None:
+            cls_token = image_encoder.cls_token.expand(x.shape[0], -1, -1)
+            x = torch.cat((cls_token, x), dim=1)  # 拼接 cls token
+        if hasattr(image_encoder, 'pos_embed') and image_encoder.pos_embed is not None:
+            if x.shape[1] == image_encoder.pos_embed.shape[1]:
+                x = x + image_encoder.pos_embed  # 添加位置嵌入
+            else:
+                print(
+                    f"警告: ViT 位置嵌入与序列长度不匹配 ({x.shape[1]} vs {image_encoder.pos_embed.shape[1]}), 跳过位置嵌入。")
+
+        #  --- 从 Transformer Blocks 中更普遍地选择输出 ---
+        num_blocks = len(image_encoder.blocks)
+        #  选择要提取输出的 Block 索引
+        #  例如：均匀选择 num_selected_scales 个 Block 的输出
+        #  假设 num_selected_scales 在 ImageEmbedding __init__ 中定义并传递到这里
+        #  你可以根据需要调整选择策略
+        num_selected_scales = num_image_token  # <--- 示例：选择 3 个尺度
+        #  计算要选择的 Block 索引
+        #  例如：从第 0 个 Block 开始，每隔 num_blocks // num_selected_scales 个 Block 选择一个
+        #  或者更简单的：选择最后一个 Block 和前面均匀分布的 Block
+        selected_block_indices = [int(i * (num_blocks - 1) / (num_selected_scales - 1)) for i in
+                                  range(num_selected_scales)]  # 示例：均匀分布索引
+
+        print(f"选择的 ViT Block 索引: {selected_block_indices}")
+
+        y = x  # 从 patch_embed 的输出开始经过 blocks
+        for i, block in enumerate(image_encoder.blocks):
+            y = block(y)
+            # 如果当前 Block 索引在 selected_block_indices 中
+            if i in selected_block_indices:
+                multi_scale_features.append(y)  # y 形状是 (batch_size, num_tokens, hidden_size)
+
+        #  可以考虑将 patch_embed 的输出 (x) 也作为一个尺度
+        # multi_scale_features.insert(0, x) # 在列表开头插入 patch_embed 输出
+
+        return multi_scale_features  # 返回选定 Block 的输出列表
+
+    # ... (其他图像编码器类型的处理逻辑保持不变) ...
+    #  对于 nf_resnet50 等，仍然返回特征图列表，需要在 ImageEmbedding 中的处理逻辑中处理不同形状
+
+
 def encode_images(image_encoder, proj_image_features, frozen_image_encoder, pixel_values, d_image_encoder,
                   image_encoder_type):
     # image_encoder 采用冻结的 nf_resnet50模型 pixel_values = (batch_size * 3, 224, 224)
@@ -389,7 +441,8 @@ class MultiModalBartEncoder_for_Generating_aspect_prompt(nn.Module):
     def __init__(self,
                  use_generated_prompt,
                  config: MultiModalBartConfig, encoder, img_feat_id, aspect_prompt_token_id, senti_prompt_token_id,
-                 cls_token_id, num_image_tokens, use_different_aspect_prompt, aspect_prompt_token_front_id, aspect_prompt_token_end_id):
+                 cls_token_id, num_image_tokens, use_different_aspect_prompt, aspect_prompt_token_front_id,
+                 aspect_prompt_token_end_id):
         super().__init__()
 
         self.use_generated_prompt = use_generated_prompt
@@ -512,7 +565,9 @@ class MultiModalBartEncoder_for_Generating_aspect_prompt(nn.Module):
             # print(new_input_id)
         new_input_ids = torch.stack(new_input_ids)
         # 多出指示Aspect前后的索引位置
-        prompt_mask = aspect_prompt_mask = (new_input_ids == self.aspect_prompt_token_id) | (new_input_ids == self.aspect_prompt_token_front_id)| (new_input_ids == self.aspect_prompt_token_end_id)
+        prompt_mask = aspect_prompt_mask = (new_input_ids == self.aspect_prompt_token_id) | (
+                new_input_ids == self.aspect_prompt_token_front_id) | (
+                                                   new_input_ids == self.aspect_prompt_token_end_id)
         ##[29:58]: 一共5组:[50288, 50288,     9, 50289,  5702, 50284,]
         if self.use_generated_prompt:
             if self.use_different_aspect_prompt:
@@ -807,7 +862,7 @@ class MultiModalBartEncoder_for_Generating_Dual_prompts(nn.Module):
                  config: MultiModalBartConfig, encoder, img_feat_id, aspect_prompt_token_id, senti_prompt_token_id,
                  cls_token_id, num_image_tokens, use_different_aspect_prompt, use_different_senti_prompt,
                  NEU_id, POS_id, NEG_id, aspect_prompt_token_front_id, aspect_prompt_token_end_id
-            ):
+                 ):
         super().__init__()
 
         self.use_generated_aspect_prompt = use_generated_aspect_prompt
@@ -944,7 +999,9 @@ class MultiModalBartEncoder_for_Generating_Dual_prompts(nn.Module):
             #         new_input_ids in [self.aspect_prompt_token_id, self.aspect_prompt_token_front_id
             #                           , self.aspect_prompt_token_end_id])
             ##[29:58]: 一共5组:[50288, 50288,     9, 50289,  5702, 50284,]
-            aspect_prompt_mask = (new_input_ids == self.aspect_prompt_token_id) | (new_input_ids == self.aspect_prompt_token_front_id)| (new_input_ids == self.aspect_prompt_token_end_id)
+            aspect_prompt_mask = (new_input_ids == self.aspect_prompt_token_id) | (
+                    new_input_ids == self.aspect_prompt_token_front_id) | (
+                                         new_input_ids == self.aspect_prompt_token_end_id)
             if self.use_different_aspect_prompt:
                 # self.aspect_linear = self.aspect_linear.to(device)
                 # self.aspect_relu = self.aspect_relu.to(device)
@@ -1590,6 +1647,7 @@ class EnhancedSingleHeadCrossAttn(nn.Module):
         output = self.layer_norm(residual + self.dropout(context))
         return output
 
+
 #  预先定义一个交叉注意力类，后面在APD部分使用
 class CrossAttentionLayer(nn.Module):
     def __init__(self, hidden_size, num_attention_heads, dropout):
@@ -1606,7 +1664,7 @@ class CrossAttentionLayer(nn.Module):
             attention_output: [batch_size, seq_len, hidden_size] -  交叉注意力计算结果
         """
         attention_output, attention_weight = self.cross_attention(query, key_value,
-                                                   key_value)  # Self-attention if query == key_value, else cross-attention
+                                                                  key_value)  # Self-attention if query == key_value, else cross-attention
         return attention_output, attention_weight
 
 
@@ -1637,7 +1695,8 @@ class FusionAttention(nn.Module):  # 将注意力融合模块定义为一个独�
 
 
 class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
-    def __init__(self, config: MultiModalBartConfig, decoder, encoder, prompt_pool_num, diversity_loss_weight, l2_reg_weight):
+    def __init__(self, config: MultiModalBartConfig, decoder, encoder, prompt_pool_num, diversity_loss_weight,
+                 l2_reg_weight):
         super().__init__()
         self.config = config
         self.decoder = decoder
@@ -1649,8 +1708,8 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         self.layers = len(encoder.layers)  # BART模型的层数这样获取， 他只有6层。
         # 可以考虑不用多头，防止少样本训练的过拟合。
         self.cross_attention_image = CrossAttentionLayer(hidden_size=768, num_attention_heads=6,
-                                                         dropout=0.1)  # 用于和 图像嵌入 做交叉注意力
-        self.fusion_attention = FusionAttention(input_dim=768, num_heads=4, dropout=0.1)  # 初始化注意力融合模块
+                                                         dropout=0.0)  # 用于和 图像嵌入 做交叉注意力
+        self.fusion_attention = FusionAttention(input_dim=768, num_heads=4, dropout=0.0)  # 初始化注意力融合模块
         # 单头的
         # self.cross_attention_image = EnhancedSingleHeadCrossAttn(hidden_dim=768)  # 用于和 图像嵌入 做交叉注意力
         # self.fusion_attention = EnhancedSingleHeadCrossAttn(hidden_dim=768)  # 初始化注意力融合模块
@@ -1661,7 +1720,7 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         self.indices = [4, 5]
 
         self.cross_attention_layers = nn.ModuleList([  # 用于和 encoder 各层做交叉注意力
-            CrossAttentionLayer(hidden_size=768, num_attention_heads=4, dropout=0.1)
+            CrossAttentionLayer(hidden_size=768, num_attention_heads=6, dropout=0.0)
             for _ in range(len(self.indices))  # encoder_layers 是 encoder 的层数
         ])
 
@@ -1726,12 +1785,13 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         #     self.frozen_mlp2_layer_2,  # 使用 FrozenLinearLayer，参数已用 BART 预训练参数初始化并冻结
         #     nn.GELU()  # 激活函数
         # )
-        self.mlp1 = nn.Sequential(
-            nn.Linear(768, 768),
-            nn.GELU(),
-            nn.LayerNorm(768)
-        )
-        self.sparsity_weight = 0.01
+        # self.mlp1 = nn.Sequential(
+        #     nn.Linear(768, 768),
+        #     nn.GELU(),
+        #     nn.LayerNorm(768)
+        # )
+        self.sparsity_weight = 0.05
+        self.LayerNorm = nn.LayerNorm(768)
         #  使用示例:
         # self.frozen_fc = FrozenLinearLayer(768, 768)  # 创建一个输入和输出维度都为 768 的冻结线性层
 
@@ -1753,11 +1813,13 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         # mask_expanded = sentence_mask.unsqueeze(-1).to(attention_mask.device)  # [b,s,1]
 
         # 1. 和 Encoder 各层做交叉注意力 (仅限文本部分)
-        cross_attention_layer_outputs, sparsity_loss_layers = self.cross_attention_for_layers(encoder_outputs, encoder_outputs_all,
-                                                                        sentence_mask)
+        cross_attention_layer_outputs, sparsity_loss_layers = self.cross_attention_for_layers(encoder_outputs,
+                                                                                              encoder_outputs_all,
+                                                                                              sentence_mask)
         # 2. 和 图像嵌入做交叉注意力 (代码不变)
-        cross_attention_image_output, sparsity_loss_image = self.cross_attention_for_image(encoder_outputs, encoder_outputs, image_mask,
-                                                                      sentence_mask)
+        cross_attention_image_output, sparsity_loss_image = self.cross_attention_for_image(encoder_outputs,
+                                                                                           encoder_outputs, image_mask,
+                                                                                           sentence_mask)
 
         # 3. 注意力融合所有特征
         fused_encoder_outputs = self.fuse_features(encoder_outputs, cross_attention_layer_outputs,
@@ -1862,11 +1924,11 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         # aspect_prompt_logits = self.text_mlp(prompt_logits)
         #
         aspect_prompt_logits = self.aspect_prompt_linear(prompt_logits)
-
+        sparsity_loss_image = torch.tensor(0.0, dtype=torch.float)
         # --- 新增：计算和返回损失函数 并将损失直接返回---
         # diversity_loss = self.diversity_loss_cosine_distance()
         # l2_reg_loss = self.l2_regularization_loss()
-
+        # print("注意力部分的损失 各层和图像的", sparsity_loss_layers, sparsity_loss_image)
         return aspect_prompt_logits, sparsity_loss_layers, sparsity_loss_image
 
     def cross_attention_for_layers(self, query, encoder_outputs_all, sentence_mask):
@@ -1878,7 +1940,7 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         # 挑选合适的层也是一个需要判断的依据
         # 再计算交叉注意力前，先对encoder最后的输出套一个MLP
         # print("query维度", query.shape)
-        query = self.mlp1(query)
+        # query = self.mlp1(query)
         # print("query维度", query.shape)
         encoder_outputs_all_choose = [encoder_outputs_all[i] for i in self.indices]
         total_loss = 0.0
@@ -1904,7 +1966,7 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
                     encoder_layer_output_text = encoder_layer_output_text.unsqueeze(
                         0)  # [1, num_text_tokens, hidden_size] - 为交叉注意力增加 batch 维度
                     cross_attn_output_text_part, cross_attn_weight = self.cross_attention_layers[i](text_query,
-                                                                                 encoder_layer_output_text)  # [1, num_text_tokens, hidden_size] -  交叉注意力计算结果 (仅文本部分)
+                                                                                                    encoder_layer_output_text)  # [1, num_text_tokens, hidden_size] -  交叉注意力计算结果 (仅文本部分)
                     total_loss = total_loss + torch.mean(torch.abs(cross_attn_weight)) * self.sparsity_weight
                     cross_attn_output = torch.zeros_like(current_query).unsqueeze(
                         0)  # [1, s, hidden_size] - 初始化当前样本的完整交叉注意力输出为零张量
@@ -1927,7 +1989,7 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         batch_cross_attn_outputs = []
 
         # 再计算交叉注意力前，先对encoder最后的输出套一个MLP
-        query = self.mlp1(query)
+        # query = self.mlp1(query)
         total_loss = 0.0
         for b_idx in range(batch_size):  # 遍历 batch 维度
             current_image_mask = image_mask[b_idx]  # [s] - 当前 batch 样本的 image_mask
@@ -1947,7 +2009,7 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
                 image_embedding = image_embedding.unsqueeze(0)  # [1, num_image_tokens, hidden_size] - 增加 batch 维度
                 query_expanded = text_query.unsqueeze(0)  # [1, s, hidden_size] - 增加 batch 维度，query 也需要扩展维度匹配
                 cross_attn_output_image_part, cross_attn_weight = self.cross_attention_image(query_expanded,
-                                                                          image_embedding)  # [1, s, hidden_size] - 交叉注意力计算 (图像部分)
+                                                                                             image_embedding)  # [1, s, hidden_size] - 交叉注意力计算 (图像部分)
                 total_loss = total_loss + torch.mean(torch.abs(cross_attn_weight)) * self.sparsity_weight
                 cross_attn_output = torch.zeros_like(current_query).unsqueeze(0)  # [1, s, hidden_size] - 初始化完整输出
                 cross_attn_output[:, text_mask, :] = cross_attn_output_image_part  # 将计算出的图像部分结果填入完整输出
@@ -1995,6 +2057,9 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         #                                                         self.fusion_weight_matrices[i])
         #     fused_feature = fused_feature + torch.matmul(weight, feature)
 
+        # 增加残差连接 和 归一化
+        fused_feature = fused_feature + last_layer_feature
+        fused_feature = self.LayerNorm(fused_feature)
         return fused_feature
 
     def compute_correlation_weights_learnable(self, tensor1, tensor2, learnable_weight_matrix):
@@ -2040,6 +2105,7 @@ class MultiModalBartDecoder_generate_aspect_prompt(nn.Module):
         """计算 Prompt 池的 L2 正则化损失"""
         l2_reg_loss = torch.sum(self.prompt_pool ** 2)  # 计算 Prompt 池参数的平方和
         return l2_reg_loss * self.l2_reg_weight  # 应用权重
+
 
 '''
 generate_sentiment_prompt based on the multimodal context
@@ -2239,15 +2305,15 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
         self.layers = len(encoder.layers)  # BART模型的层数这样获取， 他只有6层。
 
         self.cross_attention_image = CrossAttentionLayer(hidden_size=768, num_attention_heads=6,
-                                                         dropout=0.1)  # 用于和 图像嵌入 做交叉注意力
-        self.fusion_attention = FusionAttention(input_dim=768, num_heads=4, dropout=0.1)  # 初始化注意力融合模块
+                                                         dropout=0.0)  # 用于和 图像嵌入 做交叉注意力
+        self.fusion_attention = FusionAttention(input_dim=768, num_heads=4, dropout=0.0)  # 初始化注意力融合模块
 
         self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
 
         # 挑选合适的encoder层作为需要融合的信息  这个时候需要挑选中间层
-        self.indices = [5]
+        self.indices = [4, 5]
         self.cross_attention_layers = nn.ModuleList([  # 用于和 encoder 各层做交叉注意力
-            CrossAttentionLayer(hidden_size=768, num_attention_heads=4, dropout=0.1)
+            CrossAttentionLayer(hidden_size=768, num_attention_heads=6, dropout=0.0)
             for _ in range(len(self.indices))  # encoder_layers 是 encoder 的层数
         ])
         # 添加部分：
@@ -2300,17 +2366,16 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
         #     self.frozen_mlp2_layer_2,  # 使用 FrozenLinearLayer，参数已用 BART 预训练参数初始化并冻结
         #     nn.GELU()  # 激活函数
         # )
-        self.mlp1 = nn.Sequential(
-            nn.Linear(768, 768),
-            nn.GELU(),
-            nn.LayerNorm(768)
-        )
+        # self.mlp1 = nn.Sequential(
+        #     nn.Linear(768, 768),
+        #     nn.GELU(),
+        #     nn.LayerNorm(768)
+        # )
         # 用另一种方式计算权重
         # self.fusion_weight_matrices = nn.ParameterList([
         #     nn.Parameter(torch.randn(768, 768)) for _ in range(len(self.indices) + 2)
-            # 创建 nn.Parameter 矩阵，形状 [768, 768]
+        # 创建 nn.Parameter 矩阵，形状 [768, 768]
         # ])
-
 
     def _init_weights(self, module):
         module.weight.data.normal_(mean=0.0, std=0.02)
@@ -2323,11 +2388,13 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
         # mask_expanded = sentence_mask.unsqueeze(-1).to(attention_mask.device)  # [b,s,1]
 
         # 1. 和 Encoder 各层做交叉注意力 (仅限文本部分)
-        cross_attention_layer_outputs, sparsity_loss_layers = self.cross_attention_for_layers(encoder_outputs, encoder_outputs_all,
-                                                                        sentence_mask)
+        cross_attention_layer_outputs, sparsity_loss_layers = self.cross_attention_for_layers(encoder_outputs,
+                                                                                              encoder_outputs_all,
+                                                                                              sentence_mask)
         # 2. 和 图像嵌入做交叉注意力 (代码不变)
-        cross_attention_image_output, sparsity_loss_image = self.cross_attention_for_image(encoder_outputs, encoder_outputs, image_mask,
-                                                                      sentence_mask)
+        cross_attention_image_output, sparsity_loss_image = self.cross_attention_for_image(encoder_outputs,
+                                                                                           encoder_outputs, image_mask,
+                                                                                           sentence_mask)
 
         # 3. 注意力融合所有特征
         fused_encoder_outputs = self.fuse_features(encoder_outputs, cross_attention_layer_outputs,
@@ -2446,6 +2513,9 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
         loss_fct = nn.CrossEntropyLoss()
         aspects_num_labels = torch.tensor(aspects_num_labels).to(predict_aspects_num_logits.device)
         aspects_num_loss = loss_fct(predict_aspects_num_logits, aspects_num_labels)
+
+        # print("注意力部分的损失 各层和图像的", sparsity_loss_layers, sparsity_loss_image)
+        sparsity_loss_image = torch.tensor(0.0, dtype=torch.float)
         return aspects_num_loss, predict_aspects_num_logits, sparsity_loss_layers, sparsity_loss_image
 
     def cross_attention_for_layers(self, query, encoder_outputs_all, sentence_mask):
@@ -2455,7 +2525,7 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
         batch_size, seq_len = sentence_mask.shape
         hidden_size = query.size(-1)  # 获取 hidden_size
         # 挑选合适的层也是一个需要判断的依据
-        query = self.mlp1(query)
+        # query = self.mlp1(query)
         encoder_outputs_all_choose = [encoder_outputs_all[i] for i in self.indices]
         total_loss = 0.0
         for i, encoder_layer_output in enumerate(
@@ -2480,7 +2550,7 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
                     encoder_layer_output_text = encoder_layer_output_text.unsqueeze(
                         0)  # [1, num_text_tokens, hidden_size] - 为交叉注意力增加 batch 维度
                     cross_attn_output_text_part, cross_attn_weight = self.cross_attention_layers[i](text_query,
-                                                                                 encoder_layer_output_text)  # [1, num_text_tokens, hidden_size] -  交叉注意力计算结果 (仅文本部分)
+                                                                                                    encoder_layer_output_text)  # [1, num_text_tokens, hidden_size] -  交叉注意力计算结果 (仅文本部分)
                     total_loss = total_loss + torch.mean(torch.abs(cross_attn_weight)) * self.sparsity_loss_weight
                     cross_attn_output = torch.zeros_like(current_query).unsqueeze(
                         0)  # [1, s, hidden_size] - 初始化当前样本的完整交叉注意力输出为零张量
@@ -2501,7 +2571,7 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
         batch_size, seq_len = image_mask.shape
         hidden_size = query.size(-1)
         batch_cross_attn_outputs = []
-        query = self.mlp1(query)
+        # query = self.mlp1(query)
         total_loss = 0.0
         for b_idx in range(batch_size):  # 遍历 batch 维度
             current_image_mask = image_mask[b_idx]  # [s] - 当前 batch 样本的 image_mask
@@ -2521,7 +2591,7 @@ class MultiModalBartDecoder_aspects_num(nn.Module):  # MSP task
                 image_embedding = image_embedding.unsqueeze(0)  # [1, num_image_tokens, hidden_size] - 增加 batch 维度
                 query_expanded = text_query.unsqueeze(0)  # [1, s, hidden_size] - 增加 batch 维度，query 也需要扩展维度匹配
                 cross_attn_output_image_part, cross_attn_weight = self.cross_attention_image(query_expanded,
-                                                                          image_embedding)  # [1, s, hidden_size] - 交叉注意力计算 (图像部分)
+                                                                                             image_embedding)  # [1, s, hidden_size] - 交叉注意力计算 (图像部分)
                 total_loss = total_loss + torch.mean(torch.abs(cross_attn_weight)) * self.sparsity_loss_weight
                 cross_attn_output = torch.zeros_like(current_query).unsqueeze(0)  # [1, s, hidden_size] - 初始化完整输出
                 cross_attn_output[:, text_mask, :] = cross_attn_output_image_part  # 将计算出的图像部分结果填入完整输出

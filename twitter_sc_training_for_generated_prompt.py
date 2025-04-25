@@ -462,7 +462,7 @@ def parse_args():
                         help='whether use different prompt for different aspects in an instance')
 
     parser.add_argument('--text_only', action='store_true', default=False, help='whether only use text')
-    parser.add_argument('--use_caption', action='store_true', default=False, help='whether use image caption')
+    parser.add_argument('--use_caption', type=str, default=False, help='whether use image caption')
 
     # 新增部分：1、情绪Prompt池大小 2、用于更新Prompt池部分的损失函数， 包括多样性损失权重和正则化损失权重
     parser.add_argument('--Prompt_Pool_num', type=int, default=8, help="The number of PromptPool")
