@@ -1,4 +1,4 @@
-# Prompt_basd_JAMSA
+# Prompt_basd_MABSA
 
 本部分先记录使用 以GMP为基础的代码上，增加Prompt Tuning 以提升模型在 MATE MASC JAMSA任务上的性能， 目前的方法已经较之原文有了部分性能的提升
 
