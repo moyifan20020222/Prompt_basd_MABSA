@@ -427,7 +427,7 @@ def parse_args():
     parser.add_argument('--has_prompt', action='store_true', help='whether has prompt')
     parser.add_argument('--use_generated_prompt', action='store_true',
                         help='whether use the generated prompt')
-    parser.add_argument('--use_different_senti_prompt', action='store_false', default=False,
+    parser.add_argument('--use_different_senti_prompt', type=str, default=True,
                         help='whether use different prompt for different aspects in an instance')
     parser.add_argument('--use_different_aspect_prompt', action='store_true', default=True,
                         help='whether use different prompt for different aspects in an instance')
@@ -438,10 +438,12 @@ def parse_args():
     parser.add_argument('--use_caption', type=str, default=True, help='whether use image caption')
     parser.add_argument('--Prompt_Pool_num', type=int, default=8, help="The number of PromptPool")
     parser.add_argument('--diversity_loss_weight', type=float, default=0.1, help='The weight of diversity_loss')
-    parser.add_argument('--l2_reg_weight', type=float, default=0.00001, help='The weight of l2_reg')
+    parser.add_argument('--l2_reg_weight', type=float, default=0.0001, help='The weight of l2_reg')
     # 新增关于mlm损失的部分：
     parser.add_argument('--mlm_enabled', type=str, default=True, help='MLM Loss in CTTA')
     parser.add_argument('--world_size', type=int, default=1, help='使用的GPU数量')
+    # 是否是少样本
+    parser.add_argument('--is_few_shot', type=str, default=True, help='当前是否是少样本数据集')
     args = parser.parse_args()
 
     if args.gpu_num != 1 and args.cpu:

@@ -173,6 +173,9 @@ class Collator:
         # 增加的相关性程度
         score_list = [x['score'] for x in batch]
         output['score'] = torch.tensor(score_list).float()
+        # 增加的字幕和文本的名词部分
+        output['caption_nouns'] = encoded_conditions['caption_nouns']
+        output['sentence_nouns'] = encoded_conditions['sentence_nouns']
         if self._has_label:
             # encode mrm and mlm labels
             if self._mlm_enabled:

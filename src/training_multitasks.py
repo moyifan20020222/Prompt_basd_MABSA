@@ -154,7 +154,8 @@ def fine_tune(epoch,
             # print("当前使用的模型是:", model)
             # print("image_caption_mask:", batch['image_caption_mask'].size())
             # print("image_caption_valid:", batch['image_caption_valid'])
-
+            # 增加的字幕和文本的名词部分
+            # print("信息", batch['input_ids'], batch['input_ids'].size())
             loss, predict_aspects_num, pseudo_loss = model.forward(
                 input_ids=batch['input_ids'].to(device),
                 image_features=list(
@@ -167,7 +168,9 @@ def fine_tune(epoch,
                 mlm_message=batch['MLM'],  # 用于计算MLM损失的信息
                 image_caption_valid=batch['image_caption_valid'],
                 image_caption_mask=batch['image_caption_mask'],
-                score=batch['score']
+                score=batch['score'],
+                caption_nouns=batch['caption_nouns'],
+                sentence_nouns=batch['sentence_nouns']
             )
             target_aspects_num = torch.tensor(batch['aspects_num']).to(predict_aspects_num.device)
             if args.task == 'twitter_sc':

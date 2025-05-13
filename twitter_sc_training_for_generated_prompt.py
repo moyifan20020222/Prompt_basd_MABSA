@@ -456,7 +456,7 @@ def parse_args():
     parser.add_argument('--has_prompt', action='store_true', help='whether has prompt')
     parser.add_argument('--use_generated_prompt', action='store_true',
                         help='whether use the generated prompt')
-    parser.add_argument('--use_different_senti_prompt', action='store_false',
+    parser.add_argument('--use_different_senti_prompt', type=str, default=False,
                         help='whether use different prompt for different aspects in an instance')
     parser.add_argument('--use_different_aspect_prompt', action='store_true', default=True,
                         help='whether use different prompt for different aspects in an instance')
@@ -467,7 +467,8 @@ def parse_args():
     # 新增部分：1、情绪Prompt池大小 2、用于更新Prompt池部分的损失函数， 包括多样性损失权重和正则化损失权重
     parser.add_argument('--Prompt_Pool_num', type=int, default=8, help="The number of PromptPool")
     parser.add_argument('--diversity_loss_weight', type=float, default=0.1, help='The weight of diversity_loss')
-    parser.add_argument('--l2_reg_weight', type=float, default=0.00001, help='The weight of l2_reg')
+    parser.add_argument('--l2_reg_weight', type=float, default=0.0001, help='The weight of l2_reg')
+    # 0.00003 -> 0.0001
     parser.add_argument('--mlm_enabled', type=str, default=True, help='MLM Loss in CTTA')
     args = parser.parse_args()
 

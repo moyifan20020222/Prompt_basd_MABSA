@@ -152,9 +152,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                                                                                         args.l2_reg_weight)
         if self.use_multitasks:
             self.aspect_num_decoder = MultiModalBartDecoder_aspects_num(self.config, share_decoder, encoder,
-                                                                           args.Prompt_Pool_num,
-                                                                           args.diversity_loss_weight,
-                                                                           args.l2_reg_weight)
+                                                                        args.Prompt_Pool_num,
+                                                                        args.diversity_loss_weight,
+                                                                        args.l2_reg_weight)
 
         self.decoder = MultiModalBartDecoder_span(self.config,
                                                   self.tokenizer,
@@ -174,9 +174,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         self.text_caption_attn_output_projection = nn.Linear(self.config.hidden_size, 1)  # 示例：将池化后的输出投影到 1 维
         # 定义相关度阈值
         if args.dataset[0][0] == 'twitter15':
-            self.threshold = 0.5
-        elif args.dataset[0][0] == 'twitter17':
             self.threshold = 0.7
+        elif args.dataset[0][0] == 'twitter17':
+            self.threshold = 0.5
 
     def prepare_state(self,
                       input_ids,
@@ -190,6 +190,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                       image_caption_valid=None,
                       image_caption_mask=None,
                       score=None,
+                      caption_nouns=None,
+                      sentence_nouns=None,
                       first=None):
         ##generate prompt for each instance
 
@@ -316,12 +318,11 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
 
             # 7. 计算 CRD 损失 (仅针对有效样本)
             target_labels_valid = score[valid_indices].unsqueeze(1).to(attention_mask.device)  # [num_valid, 1]
-            # binary_scores_valid = (target_labels_valid > self.threshold).float().unsqueeze(-1).to(attention_mask.device)
-            # binary_logits_valid = (scores_valid > self.threshold).float().unsqueeze(-1).to(attention_mask.device)
-            # print("二元判别：标注 and 计算的", binary_scores_valid, binary_logits_valid)
-            # criterion_crd = nn.BCEWithLogitsLoss()
-            criterion_crd = nn.MSELoss()
-            loss_crd = criterion_crd(scores_valid, target_labels_valid)
+            # 再转为硬标签
+            hard_labels = (target_labels_valid > self.threshold).float()
+
+            criterion_crd = nn.BCELoss()
+            loss_crd = criterion_crd(scores_valid, hard_labels)
 
             # 8. 更新完整批次的 logits 和 scores
             # 使用 scatter_ 或 index_put_ 更新特定索引的值
@@ -353,7 +354,7 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
         # 2、直接认为这个字幕信息就是一个中间内容，计算出图片和文本的相关度后就可以丢弃了， 那为了保证结构统一，可以直接在此乘0，或是mask为0即可。
 
         # --------------
-
+        noun_embeds, noun_mask = self.process_batch(caption_nouns, sentence_nouns, attention_mask.device)
 
         '''generated_aspect_prompt'''
         aspect_prompt_decoder_input_ids, aspect_prompt_decoder_attention_mask = [
@@ -423,7 +424,12 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
                 attention_mask=attention_mask,
                 decoder_input_ids=senti_prompt_decoder_input_ids,
                 decoder_attention_mask=senti_prompt_decoder_attention_mask,
-                sentence_mask=sentence_mask)
+                sentence_mask=sentence_mask,
+                image_mask=image_mask,
+                noun_embeds=noun_embeds,
+                noun_mask=noun_mask,
+                image_caption_valid=image_caption_valid,
+                image_caption_mask=image_caption_mask)
 
             generated_senti_prompt = generated_senti_prompt[:, 1:, :]  ##(batch_size, 2, 768)
 
@@ -466,6 +472,8 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             image_caption_valid=None,
             image_caption_mask=None,
             score=None,
+            caption_nouns=None,
+            sentence_nouns=None,
             encoder_outputs: Optional[Tuple] = None,
             use_cache=None,
             output_attentions=None,
@@ -488,7 +496,9 @@ class MultiModalBartModel_AESC(PretrainedBartModel):
             mlm_message,
             image_caption_valid,
             image_caption_mask,
-            score)
+            score,
+            caption_nouns,
+            sentence_nouns)
         spans, span_mask = [
             aesc_infos['labels'].to(input_ids.device),
             aesc_infos['masks'].to(input_ids.device)

@@ -94,6 +94,8 @@ class SequenceGeneratorModel(nn.Module):
                 image_caption_valid=None,
                 image_caption_mask=None,
                 score=None,
+                caption_nouns=None,
+                sentence_nouns=None,
                 first=None):
         """
         透传调用seq2seq_model的forward
@@ -115,7 +117,9 @@ class SequenceGeneratorModel(nn.Module):
                                   mlm_message=mlm_message,
                                   image_caption_valid=image_caption_valid,
                                   image_caption_mask=image_caption_mask,
-                                  score=score)
+                                  score=score,
+                                  caption_nouns=caption_nouns,
+                                  sentence_nouns=sentence_nouns)
 
     def predict(self,
                 input_ids,
@@ -128,7 +132,9 @@ class SequenceGeneratorModel(nn.Module):
                 mlm_message=None,
                 image_caption_valid=None,
                 image_caption_mask=None,
-                score=None,):
+                score=None,
+                caption_nouns=None,
+                sentence_nouns=None):
         """
         给定source的内容，输出generate的内容
 
@@ -141,7 +147,8 @@ class SequenceGeneratorModel(nn.Module):
             input_ids, image_features,
             attention_mask,
             aesc_infos,
-            aspects_num, sentence_mask, image_mask, mlm_message, image_caption_valid, image_caption_mask, score)
+            aspects_num, sentence_mask, image_mask, mlm_message, image_caption_valid, image_caption_mask, score,
+            caption_nouns, sentence_nouns)
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)
         # print("预测时的信息 tgt_tokens", tgt_tokens)
         # print("前三个token 和后面的信息", tgt_tokens[:, :3], tgt_tokens[:, 3:])

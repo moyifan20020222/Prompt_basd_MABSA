@@ -4,7 +4,7 @@ from transformers import BartTokenizer, AutoTokenizer
 from itertools import chain
 from functools import cmp_to_key
 # from src.utils import TaskType
-
+import spacy
 
 def cmp(v1, v2):
     if v1[0] == v2[0]:
@@ -194,11 +194,82 @@ class ConditionTokenizer:
             self.mapping2id[key] = key_id[0]
             self.mapping2targetid[key] = len(self.mapping2targetid) + 2
         print(self.mapping2id)
+        self.nlp = spacy.load("en_core_web_sm")
+
+        # --- SenticNet 初始化 ---
+        try:
+            from senticnet.senticnet import SenticNet  # 使用正确的类名
+            self.sn = SenticNet()
+            self.senticnet_available = True
+            print("SenticNet initialized successfully.")
+        except ImportError:
+            print(
+                "Warning: SenticNet library not found or import error. Sentiment features from SenticNet will not be available.")
+            self.sn = None
+            self.senticnet_available = False
+        except Exception as e:
+            print(
+                f"Warning: Error initializing SenticNet: {e}. Sentiment features from SenticNet will not be available.")
+            self.sn = None
+            self.senticnet_available = False
+
+        # SenticNet 极性阈值 (需要仔细调整)
+        # abs(polarity) < neutral_threshold -> neutral
+        # polarity >= positive_threshold -> positive
+        # polarity <= negative_threshold -> negative
+        self.neutral_threshold = 0.2  # 例如，-0.2 到 0.2 之间被视为中性
+        self.positive_threshold = 0.2  # 例如，大于等于 0.2 被视为正面 (且不为中性)
+        self.negative_threshold = -0.2  # 例如，小于等于 -0.2 被视为负面 (且不为中性)
+
+        self.negation_words = {"not", "no", "never", "n't", "isnt", "arent", "dont", "doesnt", "didnt", "wasnt",
+                               "werent"}
+
         '''
         for AESC:
         {'AESC': 50281, 'POS': 50276, 'NEU': 50277, 'NEG': 50278}
         '''
+# ----------------
+# 添加的用senticNet识别每一个词的极性，先作为 总的 情绪Prompt的一个指导信息。
+    def _get_senticnet_polarity_value(self, word_text):
+        """ 辅助函数：从SenticNet获取单个词的原始极性值 """
+        if not self.senticnet_available:
+            return None
+        try:
+            # SenticNet通常对小写、下划线连接的格式更友好
+            formatted_word = word_text.lower().replace(" ", "_")
+            concept_info = self.sn.concept(formatted_word)
+            if concept_info and 'polarity_value' in concept_info and concept_info['polarity_value'] is not None:
+                return float(concept_info['polarity_value'])
+            # 尝试不替换空格
+            if " " in word_text:
+                concept_info_no_replace = self.sn.concept(word_text.lower())
+                if concept_info_no_replace and 'polarity_value' in concept_info_no_replace and concept_info_no_replace[
+                    'polarity_value'] is not None:
+                    return float(concept_info_no_replace['polarity_value'])
+        except KeyError:
+            pass  # 概念未找到
+        except Exception as e:
+            print(f"Error querying SenticNet for '{word_text}': {e}")
+        return None
 
+    def _determine_sentiment_tag_str(self, polarity_value):
+        """ 将SenticNet的连续极性值转换为特殊标记字符串，中性不返回标记
+        self.pos_token = pos_token
+        self.neu_token = neu_token
+        self.neg_token = neg_token
+        """
+        if polarity_value is None:
+            return "" # 没有获取到极性，不加标记
+
+        # 使用定义的阈值
+        if polarity_value >= self.positive_threshold:
+            return self.pos_token_id
+        elif polarity_value <= self.negative_threshold:
+            return self.neg_token_id
+        else: # 中性或接近中性
+            return "" # 对于中性词不操作
+
+# ------------
     def encode(self, *args, **kwargs):
         return self._base_tokenizer(*args, **kwargs)
 
@@ -259,7 +330,6 @@ class ConditionTokenizer:
                 "img_mask":...,             only exist if img_num is given. 1 for the position with img tokens
             }
         """
-        
         '''
         [image_features] + is + [image_caption] + [text] + [aspect_prompt_token]*len_1(最多为5) + has + [senti_prompt_token]*len_2 'sentiment'
 
@@ -298,7 +368,7 @@ class ConditionTokenizer:
                 caption = [caption]
             caption_split = [x.split() for x in caption]
             image_caption_tokens = []
-
+            batch_caption_nouns = []  # 新增：用于存储每个caption的名词列表
             for split in caption_split:
                 '''
                 print(split)
@@ -328,6 +398,8 @@ class ConditionTokenizer:
                 _caption_word_bpes = list(chain(*caption_word_bpes))
                 if split[0] == self.invalid_caption_token:
                     image_caption_valid.append(0)
+                    batch_caption_nouns.append([])  # 无效，返回空
+
                 elif len(_caption_word_bpes) > 20:
                     print("出现了错误的字幕信息，直接丢弃")
                     is_bpes = self._base_tokenizer.tokenize('is',
@@ -340,8 +412,13 @@ class ConditionTokenizer:
                     caption_word_bpes.append([self.end_caption_id])
                     _caption_word_bpes = list(chain(*caption_word_bpes))
                     image_caption_valid.append(0)
+                    batch_caption_nouns.append([])
                 else:
                     image_caption_valid.append(1)
+                    caption_text = " ".join(split)
+                    doc = self.nlp(caption_text)
+                    nouns = [token.text for token in doc if token.pos_ == "NOUN"]
+                    batch_caption_nouns.append(nouns)
                 image_caption_tokens.append(_caption_word_bpes.copy())
 
         if sentence is not None:
@@ -349,17 +426,37 @@ class ConditionTokenizer:
                 sentence = [sentence]
             sentence_split = [x.split() for x in sentence]
             input_sentence_tokens = []
+            batch_sentence_nouns = []  # 新增：用于存储每个句子的名词
+            # batch_emotion_tokens = []
             for split in sentence_split:
                 word_bpes = [[self.bos_token_id]]
-                for word in split:
+                # emotion_bpes = [[self.neu_token_id]]
+                # previous_word_for_negation = None  # 用于否定检测
+                for idx, word in enumerate(split):
+                    # --- SenticNet情感处理 ---
+                    word_polarity_value = self._get_senticnet_polarity_value(word)
+                    # 简单否定检查
+                    # if previous_word_for_negation and previous_word_for_negation.lower() in self.negation_words and word_polarity_value is not None:
+                    #     word_polarity_value = -word_polarity_value  # 反转极性
+
+                    word_sentiment_category_id = self._determine_sentiment_tag_str(word_polarity_value)
+
                     bpes = self._base_tokenizer.tokenize(word,
-                                                         add_prefix_space=True)
+                                                         add_prefix_space=(idx > 0 or not word.startswith(" ")))
                     bpes = self._base_tokenizer.convert_tokens_to_ids(bpes)
                     word_bpes.append(bpes)
+                    # 将当前词的情感类别ID赋给其所有的BPE tokens
+                    # if word_sentiment_category_id:
+                    #     word_bpes.append([word_sentiment_category_id])
                 word_bpes.append([self.eos_token_id])
 
                 _word_bpes = list(chain(*word_bpes))
                 input_sentence_tokens.append(_word_bpes.copy())
+                # 新增：提取名词
+                sentence_text = " ".join(split)
+                doc = self.nlp(sentence_text)
+                nouns = [token.text for token in doc if token.pos_ == "NOUN"]
+                batch_sentence_nouns.append(nouns)
         
         if has_prompt:
             aspect_prompts_tokens = []     
@@ -489,6 +586,11 @@ class ConditionTokenizer:
         image_caption_valid = torch.tensor(image_caption_valid, dtype=torch.long)
         encoded['image_caption_valid'] = image_caption_valid
         encoded['image_caption_mask'] = caption_mask
+
+        # 提取字幕和文本中的名词
+        encoded['caption_nouns'] = batch_caption_nouns
+        encoded['sentence_nouns'] = batch_sentence_nouns
+        # 增加对文本每个词的情感极性判断
         return encoded
 
     def encode_label(self, label, img_num=None):  #generate labels for MLM task

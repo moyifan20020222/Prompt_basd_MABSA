@@ -35,7 +35,9 @@ def eval(args, model, loader, metric, device):
                 mlm_message=batch['MLM'],
                 image_caption_valid=batch['image_caption_valid'],
                 image_caption_mask=batch['image_caption_mask'],
-                score=batch['score']
+                score=batch['score'],
+                caption_nouns=batch['caption_nouns'],
+                sentence_nouns=batch['sentence_nouns']
             )
         else:
             predict, predict_aspects_num, pseudo_loss = model.module.predict(
@@ -50,7 +52,9 @@ def eval(args, model, loader, metric, device):
                 mlm_message=batch['MLM'],
                 image_caption_valid=batch['image_caption_valid'],
                 image_caption_mask=batch['image_caption_mask'],
-                score=batch['score']
+                score=batch['score'],
+                caption_nouns=batch['caption_nouns'],
+                sentence_nouns=batch['sentence_nouns']
             )
         target_aspects_num = torch.tensor(batch['aspects_num']).to(predict_aspects_num.device)
         num_correct += torch.eq(predict_aspects_num, target_aspects_num).sum().float().item()
@@ -121,7 +125,9 @@ def eval_with_pseudo_ctta(args, model, loader, metric, device, num_ctta_steps=1,
                     mlm_message=batch['MLM'],
                     image_caption_valid=batch['image_caption_valid'],
                     image_caption_mask=batch['image_caption_mask'],
-                    score=batch['score']
+                    score=batch['score'],
+                    caption_nouns=batch['caption_nouns'],
+                    sentence_nouns=batch['sentence_nouns']
                 )
             else:
                 predict, predict_aspects_num, pseudo_loss = model.module.predict(
@@ -136,7 +142,9 @@ def eval_with_pseudo_ctta(args, model, loader, metric, device, num_ctta_steps=1,
                     mlm_message=batch['MLM'],
                     image_caption_valid=batch['image_caption_valid'],
                     image_caption_mask=batch['image_caption_mask'],
-                    score=batch['score']
+                    score=batch['score'],
+                    caption_nouns=batch['caption_nouns'],
+                    sentence_nouns=batch['sentence_nouns']
                 )
             pseudo_loss.backward()
             optimizer.step()
@@ -179,7 +187,9 @@ def eval_with_pseudo_ctta(args, model, loader, metric, device, num_ctta_steps=1,
             mlm_message=batch['MLM'],
             image_caption_valid=batch['image_caption_valid'],
             image_caption_mask=batch['image_caption_mask'],
-            score=batch['score']
+            score=batch['score'],
+            caption_nouns=batch['caption_nouns'],
+            sentence_nouns=batch['sentence_nouns']
         )
         target_aspects_num = torch.tensor(batch['aspects_num']).to(predict_aspects_num.device)
         num_correct += torch.eq(predict_aspects_num, target_aspects_num).sum().float().item()

@@ -445,7 +445,7 @@ def parse_args():
     parser.add_argument('--has_prompt',  action='store_true', default=True, help='whether has prompt')
     parser.add_argument('--use_generated_aspect_prompt',  action='store_true', default=True, help='whether use the generated aspect prompt')
     parser.add_argument('--use_generated_senti_prompt',  action='store_true', default=True, help='whether use the generated sentiment prompt')
-    parser.add_argument('--use_different_senti_prompt', action='store_false', default=False, help='whether use different prompt for different aspects in an instance')
+    parser.add_argument('--use_different_senti_prompt', type=str, default=True, help='whether use different prompt for different aspects in an instance')
     parser.add_argument('--use_different_aspect_prompt', action='store_true', default=True, help='whether use different prompt for different aspects in an instance')
     parser.add_argument('--use_caption', type=str, default=True, help='whether use image caption')
     parser.add_argument('--use_multitasks', action='store_true', default=True, help='whether use multitasks')
@@ -453,7 +453,7 @@ def parse_args():
     # 新增部分：1、情绪Prompt池大小 2、用于更新Prompt池部分的损失函数， 包括多样性损失权重和正则化损失权重
     parser.add_argument('--Prompt_Pool_num', type=int, default=8, help="The number of PromptPool")
     parser.add_argument('--diversity_loss_weight', type=float, default=0.1, help='The weight of diversity_loss')
-    parser.add_argument('--l2_reg_weight', type=float, default=0.00001, help='The weight of l2_reg')
+    parser.add_argument('--l2_reg_weight', type=float, default=0.0001, help='The weight of l2_reg')
     # 新增关于mlm损失的部分：
     parser.add_argument('--mlm_enabled', type=str, default=True, help='MLM Loss in CTTA')
 
@@ -463,6 +463,8 @@ def parse_args():
     # 这个部分是服务器的地址和 端口，不同服务器 请改变这两个部分
     parser.add_argument('--dist_url', default='tcp://10.154.45.17:12355', help='分布式训练的URL')
     parser.add_argument('--dist_backend', default='nccl', type=str, help='分布式训练的后端')
+    # 是否是少样本
+    parser.add_argument('--is_few_shot', type=str, default=True, help='当前是否是少样本数据集')
 
     args = parser.parse_args()
 

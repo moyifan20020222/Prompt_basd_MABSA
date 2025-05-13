@@ -31,7 +31,9 @@ def eval(args, model, loader, metric, device):
             mlm_message=batch['MLM'],
             image_caption_valid=batch['image_caption_valid'],
             image_caption_mask=batch['image_caption_mask'],
-            score=batch['score']
+            score=batch['score'],
+            caption_nouns=batch['caption_nouns'],
+            sentence_nouns=batch['sentence_nouns']
         )
         # 返回结果为序列生成的结果。
         # print('predict is {}'.format(predict))
