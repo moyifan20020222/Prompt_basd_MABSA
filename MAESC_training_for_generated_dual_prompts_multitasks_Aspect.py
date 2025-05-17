@@ -25,11 +25,29 @@ from src.model.generater_for_generated_prompt_multitasks import SequenceGenerato
 import src.eval_utils_multitasks as eval_utils
 import numpy as np
 import torch.backends.cudnn as cudnn
+import torch.distributed as dist
+
 # from thop import profile
 from src.model.modules_for_prompt_multitasks import image_model_name
 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # 尽量抑制TensorFlow的日志
+# os.environ['CUDA_VISIBLE_DEVICES'] = ''   # 告诉TensorFlow没有可见的GPU。注意是空字符串，有时比'-1'更有效。
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'  # 防止TensorFlow预分配所有GPU内存
+
+import logging
+
+# 设置日志级别为WARNING，这样INFO级别的日志就不会显示
+logging.basicConfig(level=logging.WARNING)
+# 特别设置fastNLP相关模块的日志级别
+for logger_name in logging.root.manager.loggerDict:
+    if 'fastNLP' in logger_name or 'instantiator' in logger_name:
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+
 
 def get_parameter_number(model):
+    for name, param in model.named_parameters():
+        if param.requires_grad:  # 只统计可训练的参数
+            print(f"Name: {name}, Size: {param.size()}, Requires Grad: {param.requires_grad}")
     total_num = sum(p.numel() for p in model.parameters())
     trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return {'Total': total_num, 'Trainable': trainable_num}
@@ -37,17 +55,22 @@ def get_parameter_number(model):
 
 def main(rank, args):
     # ------- 添加分布式的代码
-    if args.distributed:
-        setup_process(rank, args.world_size, args.dist_backend, args.dist_url)
-        torch.cuda.set_device(rank)
-        # 设置随机种子
-        if args.seed is not None:
-            random.seed(args.seed)
-            np.random.seed(args.seed)
-            torch.manual_seed(args.seed)
-            torch.cuda.manual_seed_all(args.seed)
-            cudnn.deterministic = True
-            cudnn.benchmark = False
+    # if args.distributed:
+    #     setup_process(rank, args.world_size, args.dist_backend, args.dist_url, args.master_port)
+    #     torch.cuda.set_device(rank)
+    #     print(f"Rank {rank} is using GPU: {torch.cuda.current_device()}")
+    #     # 启用CUDA内核启动的异步执行
+    #     # torch.cuda.set_stream(torch.cuda.Stream())
+    #     # # 设置cudnn基准模式以加速卷积操作
+    #     # torch.backends.cudnn.benchmark = True
+    #     # 设置随机种子
+    #     if args.seed is not None:
+    #         random.seed(args.seed)
+    #         np.random.seed(args.seed)
+    #         torch.manual_seed(args.seed)
+    #         torch.cuda.manual_seed_all(args.seed)
+    #         cudnn.deterministic = True
+    #         cudnn.benchmark = False
 
     # ----------------
     timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
@@ -154,13 +177,12 @@ def main(rank, args):
                                        restricter=None)
         # model = MultiModalBartModel_AESC(bart_config, args.bart_model,
         #                                  tokenizer, label_ids)
-    # --------- 新增分布式架构部分：
-    model.to(rank)
 
-    if args.distributed:
-        model = DDP(model, device_ids=[rank], output_device=rank, find_unused_parameters=True)
-    parameters = get_parameter_number(model) ##{'Total': 169351685, 'Trainable': 169351685}
+    model.to(device)
+
+    parameters = get_parameter_number(model)  ##{'Total': 169351685, 'Trainable': 169351685}
     print(parameters)
+    logger.info("The parameters of model use: {}".format(parameters))
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 
     scaler = GradScaler() if args.amp else None
@@ -168,55 +190,41 @@ def main(rank, args):
     epoch = 0
     logger.info('Loading data...')
     collate_aesc = Collator(
-                            args.task,
-                            tokenizer,
-                            mlm_enabled=args.mlm_enabled,
-                            senti_enabled=False,
-                            ae_enabled=False,
-                            oe_enabled=False,
-                            aesc_enabled=True,
-                            anp_enabled=False,
-                            max_img_num=args.num_image_tokens,
-                            has_prompt=args.has_prompt,
-                            text_only=args.text_only,
-                            use_caption=args.use_caption)
+        args.task,
+        tokenizer,
+        mlm_enabled=args.mlm_enabled,
+        senti_enabled=False,
+        ae_enabled=False,
+        oe_enabled=False,
+        aesc_enabled=True,
+        anp_enabled=False,
+        max_img_num=args.num_image_tokens,
+        has_prompt=args.has_prompt,
+        text_only=args.text_only,
+        use_caption=args.use_caption)
 
     train_dataset = Twitter_Dataset(args.dataset[0][1], split='train', image_model_name=image_model_name)
     dev_dataset = Twitter_Dataset(args.dataset[0][1], split='dev', image_model_name=image_model_name)
     test_dataset = Twitter_Dataset(args.dataset[0][1], split='test', image_model_name=image_model_name)
-    # --------- 新增分布式架构部分：
-    if args.distributed:
-        train_sampler = DistributedSampler(train_dataset, num_replicas=args.world_size, rank=rank, shuffle=True)
-        dev_sampler = DistributedSampler(dev_dataset, num_replicas=args.world_size, rank=rank, shuffle=False)
-        test_sampler = DistributedSampler(test_dataset, num_replicas=args.world_size, rank=rank, shuffle=False)
 
-        train_loader = DataLoader(train_dataset, batch_size=args.batch_size, sampler=train_sampler,
-                                      num_workers=args.num_workers, collate_fn=collate_aesc, pin_memory=True)
-        dev_loader = DataLoader(dev_dataset, batch_size=args.batch_size, sampler=dev_sampler,
-                                    num_workers=args.num_workers, collate_fn=collate_aesc, pin_memory=True)
-        test_loader = DataLoader(test_dataset, batch_size=args.batch_size, sampler=test_sampler,
-                                     num_workers=args.num_workers, collate_fn=collate_aesc, pin_memory=True)
-    else:
-        train_loader = DataLoader(dataset=train_dataset,
-                                  batch_size=args.batch_size,
-                                  shuffle=True,
-                                  num_workers=args.num_workers,
-                                  pin_memory=True,
-                                  collate_fn=collate_aesc)
-        dev_loader = DataLoader(dataset=dev_dataset,
-                                batch_size=args.batch_size,
-                                shuffle=False,
-                                num_workers=args.num_workers,
-                                pin_memory=True,
-                                collate_fn=collate_aesc)
-        test_loader = DataLoader(dataset=test_dataset,
-                                 batch_size=args.batch_size,
-                                 shuffle=False,
-                                 num_workers=args.num_workers,
-                                 pin_memory=True,
-                                 collate_fn=collate_aesc)
-
-
+    train_loader = DataLoader(dataset=train_dataset,
+                              batch_size=args.batch_size,
+                              shuffle=True,
+                              num_workers=args.num_workers,
+                              pin_memory=True,
+                              collate_fn=collate_aesc)
+    dev_loader = DataLoader(dataset=dev_dataset,
+                            batch_size=args.batch_size,
+                            shuffle=False,
+                            num_workers=args.num_workers,
+                            pin_memory=True,
+                            collate_fn=collate_aesc)
+    test_loader = DataLoader(dataset=test_dataset,
+                             batch_size=args.batch_size,
+                             shuffle=False,
+                             num_workers=args.num_workers,
+                             pin_memory=True,
+                             collate_fn=collate_aesc)
 
     callback = None
     metric = AESCSpanMetric(eos_token_id,
@@ -230,8 +238,8 @@ def main(rank, args):
     # res_dev = eval_utils.eval(model, dev_loader, metric, device)
     while epoch < args.epochs:
         # --------- 新增分布式架构部分：
-        if args.distributed:
-            train_sampler.set_epoch(epoch)
+        # if args.distributed:
+        #     train_sampler.set_epoch(epoch)
         logger.info('Epoch {}'.format(epoch + 1), pad=True)
         fine_tune(epoch=epoch,
                   model=model,
@@ -253,7 +261,7 @@ def main(rank, args):
             # train_dev = eval_utils.eval(model, train_loader, metric, device)
             res_dev, dev_aspects_num_acc = eval_utils.eval(args, model, dev_loader, metric, device)
             res_test, test_aspects_num_acc = eval_utils.eval(args, model, test_loader, metric,
-                                       device)
+                                                             device)
             if rank == 0 or not args.distributed:
                 logger.info('DEV  aesc_p:{} aesc_r:{} aesc_f:{}, dev_aspects_num_acc: {:.4f}'.format(
                     res_dev['aesc_pre'], res_dev['aesc_rec'], res_dev['aesc_f'], dev_aspects_num_acc))
@@ -286,25 +294,26 @@ def main(rank, args):
                 model.seq2seq_model.save_pretrained(current_checkpoint_path)
                 print('save model!!!!!!!!!!!')
         epoch += 1
-    if rank == 0 or not args.distributed:
-        logger.info("Training complete in: " + str(datetime.now() - start),
-                    pad=True)
-        logger.info('---------------------------')
-        logger.info('BEST DEV:-----')
-        logger.info('BEST DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-            best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
-            best_dev_res['aesc_f']))
 
-        logger.info('BEST DEV TEST:-----')
-        logger.info('BEST DEV--TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-            best_dev_test_res['aesc_pre'], best_dev_test_res['aesc_rec'],
-            best_dev_test_res['aesc_f']))
+    logger.info("Training complete in: " + str(datetime.now() - start),
+                pad=True)
+    logger.info('---------------------------')
+    logger.info('BEST DEV:-----')
+    logger.info('BEST DEV  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+        best_dev_res['aesc_pre'], best_dev_res['aesc_rec'],
+        best_dev_res['aesc_f']))
 
-        logger.info('BEST TEST:-----')
-        logger.info('BEST TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
-            best_test_res['aesc_pre'], best_test_res['aesc_rec'],
-            best_test_res['aesc_f']))
+    logger.info('BEST DEV TEST:-----')
+    logger.info('BEST DEV--TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+        best_dev_test_res['aesc_pre'], best_dev_test_res['aesc_rec'],
+        best_dev_test_res['aesc_f']))
 
+    logger.info('BEST TEST:-----')
+    logger.info('BEST TEST  aesc_p:{} aesc_r:{} aesc_f:{}'.format(
+        best_test_res['aesc_pre'], best_test_res['aesc_rec'],
+        best_test_res['aesc_f']))
+    # 清理进程组
+    # dist.destroy_process_group()
     # if not args.cpu:
     #     cleanup_process()
 
@@ -442,11 +451,15 @@ def parse_args():
                         help='save the model or not')
     parser.add_argument('--task', type=str, default='AESC', help='task type')
 
-    parser.add_argument('--has_prompt',  action='store_true', default=True, help='whether has prompt')
-    parser.add_argument('--use_generated_aspect_prompt',  action='store_true', default=True, help='whether use the generated aspect prompt')
-    parser.add_argument('--use_generated_senti_prompt',  action='store_true', default=True, help='whether use the generated sentiment prompt')
-    parser.add_argument('--use_different_senti_prompt', type=str, default=True, help='whether use different prompt for different aspects in an instance')
-    parser.add_argument('--use_different_aspect_prompt', action='store_true', default=True, help='whether use different prompt for different aspects in an instance')
+    parser.add_argument('--has_prompt', action='store_true', default=True, help='whether has prompt')
+    parser.add_argument('--use_generated_aspect_prompt', action='store_true', default=True,
+                        help='whether use the generated aspect prompt')
+    parser.add_argument('--use_generated_senti_prompt', action='store_true', default=True,
+                        help='whether use the generated sentiment prompt')
+    parser.add_argument('--use_different_senti_prompt', type=str, default=True,
+                        help='whether use different prompt for different aspects in an instance')
+    parser.add_argument('--use_different_aspect_prompt', action='store_true', default=True,
+                        help='whether use different prompt for different aspects in an instance')
     parser.add_argument('--use_caption', type=str, default=True, help='whether use image caption')
     parser.add_argument('--use_multitasks', action='store_true', default=True, help='whether use multitasks')
     parser.add_argument('--loss_lambda', default=0.1, type=float, help='the weight of aspect_num classification loss')
@@ -458,11 +471,13 @@ def parse_args():
     parser.add_argument('--mlm_enabled', type=str, default=True, help='MLM Loss in CTTA')
 
     # 添加分布式训练参数
-    parser.add_argument('--distributed', action='store_true', default=True, help='是否使用分布式训练')
-    parser.add_argument('--world_size', type=int, default=4, help='使用的GPU数量')
-    # 这个部分是服务器的地址和 端口，不同服务器 请改变这两个部分
-    parser.add_argument('--dist_url', default='tcp://10.154.45.17:12355', help='分布式训练的URL')
-    parser.add_argument('--dist_backend', default='nccl', type=str, help='分布式训练的后端')
+    # parser.add_argument('--distributed', action='store_true', default=True, help='是否使用分布式训练')
+    # parser.add_argument('--world_size', type=int, default=3, help='使用的GPU数量')
+    # # 这个部分是服务器的地址和 端口，不同服务器 请改变这两个部分
+    # # parser.add_argument('--dist_url', default='tcp://10.154.45.17:12355', help='分布式训练的URL')
+    # parser.add_argument('--dist_url', type=str, default='tcp://10.200.1.3:12355', help='分布式训练的URL')
+    # parser.add_argument('--dist_backend', default='nccl', type=str, help='分布式训练的后端')
+    # parser.add_argument('--master_port', type=int, default=12355, help='端口')
     # 是否是少样本
     parser.add_argument('--is_few_shot', type=str, default=True, help='当前是否是少样本数据集')
 
@@ -488,10 +503,11 @@ if __name__ == '__main__':
     np.random.seed(args.seed)
     random.seed(args.seed)
     cudnn.deterministic = True
-    if args.distributed:
-        # 使用torch.multiprocessing启动多进程
-        mp.spawn(main, args=(args,), nprocs=args.world_size, join=True)
-    else:
-        # 单进程模式
-        main(0, args)
-
+    # if args.distributed:
+    #     # 使用torch.multiprocessing启动多进程
+    #     # 使用spawn方法启动进程，确保每个进程有独立的环境
+    #     mp.set_start_method('spawn', force=True)
+    #     mp.spawn(main, args=(args,), nprocs=args.world_size, join=True)
+    # else:
+    #     # 单进程模式
+    main(0, args)

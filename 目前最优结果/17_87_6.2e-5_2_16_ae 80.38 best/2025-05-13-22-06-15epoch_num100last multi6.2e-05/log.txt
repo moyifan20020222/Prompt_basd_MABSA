@@ -1,0 +1,363 @@
+2025-05-13 22:06:15,870 INFO ============ Initialed with 1 GPU(s) =============
+2025-05-13 22:06:15,870 INFO dataset: [['twitter17', 'src/data/jsons/few_shot_for_prompt/twitter_2017/twitter17_87_info.json']]
+2025-05-13 22:06:15,870 INFO checkpoint_dir: ./
+2025-05-13 22:06:15,870 INFO bart_model: data/bart-base
+2025-05-13 22:06:15,870 INFO log_dir: log_for_generated_aspect_prompt_multitasks/17_87_6.2e-5_2_16_ae
+2025-05-13 22:06:15,871 INFO model_config: data/bart-base/config.json
+2025-05-13 22:06:15,871 INFO text_only: False
+2025-05-13 22:06:15,871 INFO checkpoint: None
+2025-05-13 22:06:15,871 INFO lr_decay_every: 4
+2025-05-13 22:06:15,871 INFO lr_decay_ratio: 0.8
+2025-05-13 22:06:15,871 INFO epochs: 100
+2025-05-13 22:06:15,871 INFO eval_every: 1
+2025-05-13 22:06:15,871 INFO lr: 6.2e-05
+2025-05-13 22:06:15,871 INFO num_beams: 4
+2025-05-13 22:06:15,871 INFO continue_training: False
+2025-05-13 22:06:15,871 INFO warmup: 0.1
+2025-05-13 22:06:15,871 INFO dropout: None
+2025-05-13 22:06:15,871 INFO classif_dropout: None
+2025-05-13 22:06:15,871 INFO attention_dropout: None
+2025-05-13 22:06:15,871 INFO activation_dropout: None
+2025-05-13 22:06:15,871 INFO grad_clip: 5.0
+2025-05-13 22:06:15,871 INFO gpu_num: 1
+2025-05-13 22:06:15,871 INFO cpu: False
+2025-05-13 22:06:15,871 INFO amp: False
+2025-05-13 22:06:15,871 INFO master_port: 12355
+2025-05-13 22:06:15,871 INFO batch_size: 8
+2025-05-13 22:06:15,871 INFO seed: 87
+2025-05-13 22:06:15,871 INFO num_workers: 8
+2025-05-13 22:06:15,872 INFO max_len: 10
+2025-05-13 22:06:15,872 INFO max_len_a: 0.6
+2025-05-13 22:06:15,872 INFO ANP_loss_type: KL
+2025-05-13 22:06:15,872 INFO bart_init: 1
+2025-05-13 22:06:15,872 INFO sample_num: 500
+2025-05-13 22:06:15,872 INFO is_sample: 0
+2025-05-13 22:06:15,872 INFO start_idx: 0
+2025-05-13 22:06:15,872 INFO check_info: 
+2025-05-13 22:06:15,872 INFO is_check: 0
+2025-05-13 22:06:15,872 INFO task: twitter_ae
+2025-05-13 22:06:15,872 INFO has_prompt: True
+2025-05-13 22:06:15,872 INFO use_generated_prompt: True
+2025-05-13 22:06:15,872 INFO use_different_senti_prompt: True
+2025-05-13 22:06:15,872 INFO use_different_aspect_prompt: True
+2025-05-13 22:06:15,872 INFO num_image_tokens: 2
+2025-05-13 22:06:15,872 INFO use_multitasks: True
+2025-05-13 22:06:15,872 INFO loss_lambda: 0.1
+2025-05-13 22:06:15,872 INFO use_caption: True
+2025-05-13 22:06:15,872 INFO Prompt_Pool_num: 16
+2025-05-13 22:06:15,872 INFO diversity_loss_weight: 0.1
+2025-05-13 22:06:15,872 INFO l2_reg_weight: 0.0001
+2025-05-13 22:06:15,872 INFO mlm_enabled: True
+2025-05-13 22:06:15,872 INFO world_size: 1
+2025-05-13 22:06:15,872 INFO is_few_shot: True
+2025-05-13 22:06:15,872 INFO The vision model use: vit_base_patch32_224
+2025-05-13 22:06:15,873 INFO Loading model...
+2025-05-13 22:06:28,194 INFO Loading data...
+2025-05-13 22:06:28,218 INFO ==================== Epoch 1 =====================
+2025-05-13 22:07:49,670 INFO DEV  ae_p:14.72 ae_r:8.89 ae_f:11.09, dev_aspects_num_acc: 0.3561
+2025-05-13 22:07:49,670 INFO TEST  ae_p:15.29 ae_r:10.37 ae_f:12.36, test_aspects_num_acc: 0.3901
+2025-05-13 22:07:49,671 INFO ==================== Epoch 2 =====================
+2025-05-13 22:09:04,580 INFO DEV  ae_p:63.7 ae_r:31.85 ae_f:42.47, dev_aspects_num_acc: 0.3561
+2025-05-13 22:09:04,582 INFO TEST  ae_p:56.56 ae_r:28.28 ae_f:37.71, test_aspects_num_acc: 0.3901
+2025-05-13 22:09:04,582 INFO ==================== Epoch 3 =====================
+2025-05-13 22:10:09,289 INFO DEV  ae_p:65.79 ae_r:37.04 ae_f:47.39, dev_aspects_num_acc: 0.3561
+2025-05-13 22:10:09,290 INFO TEST  ae_p:63.93 ae_r:33.47 ae_f:43.94, test_aspects_num_acc: 0.3901
+2025-05-13 22:10:09,291 INFO ==================== Epoch 4 =====================
+2025-05-13 22:10:58,295 INFO DEV  ae_p:67.65 ae_r:34.07 ae_f:45.32, dev_aspects_num_acc: 0.3561
+2025-05-13 22:10:58,296 INFO TEST  ae_p:62.59 ae_r:29.82 ae_f:40.4, test_aspects_num_acc: 0.3901
+2025-05-13 22:10:58,296 INFO ==================== Epoch 5 =====================
+2025-05-13 22:11:45,736 INFO DEV  ae_p:58.29 ae_r:37.78 ae_f:45.84, dev_aspects_num_acc: 0.3561
+2025-05-13 22:11:45,738 INFO TEST  ae_p:55.09 ae_r:35.49 ae_f:43.17, test_aspects_num_acc: 0.3901
+2025-05-13 22:11:45,738 INFO ==================== Epoch 6 =====================
+2025-05-13 22:12:32,544 INFO DEV  ae_p:61.78 ae_r:43.7 ae_f:51.19, dev_aspects_num_acc: 0.3561
+2025-05-13 22:12:32,545 INFO TEST  ae_p:63.04 ae_r:43.68 ae_f:51.6, test_aspects_num_acc: 0.3901
+2025-05-13 22:12:32,546 INFO ==================== Epoch 7 =====================
+2025-05-13 22:13:18,984 INFO DEV  ae_p:68.95 ae_r:48.52 ae_f:56.96, dev_aspects_num_acc: 0.3561
+2025-05-13 22:13:18,985 INFO TEST  ae_p:68.34 ae_r:47.57 ae_f:56.09, test_aspects_num_acc: 0.3901
+2025-05-13 22:13:18,985 INFO ==================== Epoch 8 =====================
+2025-05-13 22:13:59,523 INFO DEV  ae_p:68.82 ae_r:43.33 ae_f:53.18, dev_aspects_num_acc: 0.3561
+2025-05-13 22:13:59,524 INFO TEST  ae_p:69.57 ae_r:42.06 ae_f:52.42, test_aspects_num_acc: 0.3884
+2025-05-13 22:13:59,524 INFO ==================== Epoch 9 =====================
+2025-05-13 22:14:42,046 INFO DEV  ae_p:71.1 ae_r:57.41 ae_f:63.52, dev_aspects_num_acc: 0.3561
+2025-05-13 22:14:42,047 INFO TEST  ae_p:68.81 ae_r:55.43 ae_f:61.4, test_aspects_num_acc: 0.3884
+2025-05-13 22:14:42,047 INFO ==================== Epoch 10 ====================
+2025-05-13 22:15:23,886 INFO DEV  ae_p:71.76 ae_r:57.41 ae_f:63.79, dev_aspects_num_acc: 0.3561
+2025-05-13 22:15:23,887 INFO TEST  ae_p:71.84 ae_r:54.78 ae_f:62.16, test_aspects_num_acc: 0.3901
+2025-05-13 22:15:23,887 INFO ==================== Epoch 11 ====================
+2025-05-13 22:16:12,954 INFO DEV  ae_p:70.94 ae_r:61.48 ae_f:65.87, dev_aspects_num_acc: 0.3409
+2025-05-13 22:16:12,954 INFO TEST  ae_p:69.73 ae_r:59.56 ae_f:64.25, test_aspects_num_acc: 0.3203
+2025-05-13 22:16:12,954 INFO ==================== Epoch 12 ====================
+2025-05-13 22:17:01,532 INFO DEV  ae_p:68.03 ae_r:67.78 ae_f:67.9, dev_aspects_num_acc: 0.3409
+2025-05-13 22:17:01,533 INFO TEST  ae_p:69.1 ae_r:64.51 ae_f:66.72, test_aspects_num_acc: 0.3203
+2025-05-13 22:17:01,533 INFO ==================== Epoch 13 ====================
+2025-05-13 22:17:43,092 INFO DEV  ae_p:73.36 ae_r:58.15 ae_f:64.88, dev_aspects_num_acc: 0.3561
+2025-05-13 22:17:43,093 INFO TEST  ae_p:75.35 ae_r:57.46 ae_f:65.2, test_aspects_num_acc: 0.3901
+2025-05-13 22:17:43,093 INFO ==================== Epoch 14 ====================
+2025-05-13 22:18:24,396 INFO DEV  ae_p:72.5 ae_r:64.44 ae_f:68.24, dev_aspects_num_acc: 0.3409
+2025-05-13 22:18:24,396 INFO TEST  ae_p:71.3 ae_r:59.4 ae_f:64.81, test_aspects_num_acc: 0.3203
+2025-05-13 22:18:24,397 INFO ==================== Epoch 15 ====================
+2025-05-13 22:19:06,201 INFO DEV  ae_p:73.73 ae_r:64.44 ae_f:68.77, dev_aspects_num_acc: 0.3561
+2025-05-13 22:19:06,202 INFO TEST  ae_p:76.33 ae_r:62.97 ae_f:69.01, test_aspects_num_acc: 0.3901
+2025-05-13 22:19:06,202 INFO ==================== Epoch 16 ====================
+2025-05-13 22:19:46,849 INFO DEV  ae_p:72.88 ae_r:63.7 ae_f:67.98, dev_aspects_num_acc: 0.3409
+2025-05-13 22:19:46,850 INFO TEST  ae_p:76.23 ae_r:61.35 ae_f:67.98, test_aspects_num_acc: 0.3203
+2025-05-13 22:19:46,850 INFO ==================== Epoch 17 ====================
+2025-05-13 22:20:29,499 INFO DEV  ae_p:73.33 ae_r:65.19 ae_f:69.02, dev_aspects_num_acc: 0.3561
+2025-05-13 22:20:29,500 INFO TEST  ae_p:77.3 ae_r:64.59 ae_f:70.38, test_aspects_num_acc: 0.3901
+2025-05-13 22:20:29,500 INFO ==================== Epoch 18 ====================
+2025-05-13 22:21:11,767 INFO DEV  ae_p:75.42 ae_r:65.93 ae_f:70.36, dev_aspects_num_acc: 0.3561
+2025-05-13 22:21:11,769 INFO TEST  ae_p:75.98 ae_r:63.05 ae_f:68.91, test_aspects_num_acc: 0.3901
+2025-05-13 22:21:11,769 INFO ==================== Epoch 19 ====================
+2025-05-13 22:21:53,336 INFO DEV  ae_p:78.57 ae_r:69.26 ae_f:73.62, dev_aspects_num_acc: 0.3409
+2025-05-13 22:21:53,336 INFO TEST  ae_p:78.89 ae_r:66.94 ae_f:72.42, test_aspects_num_acc: 0.3203
+2025-05-13 22:21:53,337 INFO ==================== Epoch 20 ====================
+2025-05-13 22:22:34,270 INFO DEV  ae_p:76.99 ae_r:64.44 ae_f:70.16, dev_aspects_num_acc: 0.3561
+2025-05-13 22:22:34,271 INFO TEST  ae_p:79.59 ae_r:65.4 ae_f:71.8, test_aspects_num_acc: 0.3901
+2025-05-13 22:22:34,271 INFO ==================== Epoch 21 ====================
+2025-05-13 22:23:16,056 INFO DEV  ae_p:77.16 ae_r:66.3 ae_f:71.31, dev_aspects_num_acc: 0.3561
+2025-05-13 22:23:16,057 INFO TEST  ae_p:78.69 ae_r:64.02 ae_f:70.6, test_aspects_num_acc: 0.3901
+2025-05-13 22:23:16,057 INFO ==================== Epoch 22 ====================
+2025-05-13 22:23:58,728 INFO DEV  ae_p:72.58 ae_r:66.67 ae_f:69.5, dev_aspects_num_acc: 0.3561
+2025-05-13 22:23:58,729 INFO TEST  ae_p:74.77 ae_r:65.07 ae_f:69.58, test_aspects_num_acc: 0.3901
+2025-05-13 22:23:58,730 INFO ==================== Epoch 23 ====================
+2025-05-13 22:24:41,909 INFO DEV  ae_p:79.74 ae_r:67.04 ae_f:72.84, dev_aspects_num_acc: 0.3561
+2025-05-13 22:24:41,910 INFO TEST  ae_p:79.9 ae_r:66.05 ae_f:72.32, test_aspects_num_acc: 0.3901
+2025-05-13 22:24:41,910 INFO ==================== Epoch 24 ====================
+2025-05-13 22:25:23,914 INFO DEV  ae_p:77.2 ae_r:71.48 ae_f:74.23, dev_aspects_num_acc: 0.3561
+2025-05-13 22:25:23,916 INFO TEST  ae_p:76.07 ae_r:70.58 ae_f:73.22, test_aspects_num_acc: 0.3901
+2025-05-13 22:25:23,916 INFO ==================== Epoch 25 ====================
+2025-05-13 22:26:06,495 INFO DEV  ae_p:77.91 ae_r:71.85 ae_f:74.76, dev_aspects_num_acc: 0.3864
+2025-05-13 22:26:06,496 INFO TEST  ae_p:79.67 ae_r:70.83 ae_f:74.99, test_aspects_num_acc: 0.3918
+2025-05-13 22:26:06,496 INFO ==================== Epoch 26 ====================
+2025-05-13 22:26:50,109 INFO DEV  ae_p:77.2 ae_r:71.48 ae_f:74.23, dev_aspects_num_acc: 0.3561
+2025-05-13 22:26:50,110 INFO TEST  ae_p:76.88 ae_r:71.96 ae_f:74.34, test_aspects_num_acc: 0.3901
+2025-05-13 22:26:50,110 INFO ==================== Epoch 27 ====================
+2025-05-13 22:27:32,751 INFO DEV  ae_p:77.35 ae_r:67.04 ae_f:71.83, dev_aspects_num_acc: 0.3561
+2025-05-13 22:27:32,752 INFO TEST  ae_p:76.97 ae_r:66.37 ae_f:71.28, test_aspects_num_acc: 0.3901
+2025-05-13 22:27:32,752 INFO ==================== Epoch 28 ====================
+2025-05-13 22:28:17,887 INFO DEV  ae_p:78.68 ae_r:79.26 ae_f:78.97, dev_aspects_num_acc: 0.3561
+2025-05-13 22:28:17,889 INFO TEST  ae_p:78.16 ae_r:76.26 ae_f:77.19, test_aspects_num_acc: 0.3901
+2025-05-13 22:28:17,889 INFO ==================== Epoch 29 ====================
+2025-05-13 22:29:02,178 INFO DEV  ae_p:80.45 ae_r:79.26 ae_f:79.85, dev_aspects_num_acc: 0.3561
+2025-05-13 22:29:02,180 INFO TEST  ae_p:78.43 ae_r:74.55 ae_f:76.44, test_aspects_num_acc: 0.3901
+2025-05-13 22:29:02,180 INFO ==================== Epoch 30 ====================
+2025-05-13 22:29:46,340 INFO DEV  ae_p:78.08 ae_r:75.19 ae_f:76.6, dev_aspects_num_acc: 0.3561
+2025-05-13 22:29:46,341 INFO TEST  ae_p:76.45 ae_r:71.56 ae_f:73.92, test_aspects_num_acc: 0.3901
+2025-05-13 22:29:46,342 INFO ==================== Epoch 31 ====================
+2025-05-13 22:30:31,094 INFO DEV  ae_p:75.44 ae_r:79.63 ae_f:77.48, dev_aspects_num_acc: 0.3561
+2025-05-13 22:30:31,094 INFO TEST  ae_p:75.46 ae_r:76.99 ae_f:76.21, test_aspects_num_acc: 0.3901
+2025-05-13 22:30:31,094 INFO ==================== Epoch 32 ====================
+2025-05-13 22:31:14,729 INFO DEV  ae_p:76.47 ae_r:77.04 ae_f:76.75, dev_aspects_num_acc: 0.3561
+2025-05-13 22:31:14,730 INFO TEST  ae_p:76.01 ae_r:76.01 ae_f:76.01, test_aspects_num_acc: 0.3901
+2025-05-13 22:31:14,730 INFO ==================== Epoch 33 ====================
+2025-05-13 22:31:58,021 INFO DEV  ae_p:77.78 ae_r:75.19 ae_f:76.46, dev_aspects_num_acc: 0.3712
+2025-05-13 22:31:58,022 INFO TEST  ae_p:78.55 ae_r:72.69 ae_f:75.51, test_aspects_num_acc: 0.4089
+2025-05-13 22:31:58,022 INFO ==================== Epoch 34 ====================
+2025-05-13 22:32:40,097 INFO DEV  ae_p:74.33 ae_r:71.85 ae_f:73.07, dev_aspects_num_acc: 0.3485
+2025-05-13 22:32:40,098 INFO TEST  ae_p:77.08 ae_r:72.77 ae_f:74.86, test_aspects_num_acc: 0.3969
+2025-05-13 22:32:40,098 INFO ==================== Epoch 35 ====================
+2025-05-13 22:33:23,343 INFO DEV  ae_p:76.26 ae_r:78.52 ae_f:77.37, dev_aspects_num_acc: 0.3788
+2025-05-13 22:33:23,344 INFO TEST  ae_p:75.0 ae_r:75.36 ae_f:75.18, test_aspects_num_acc: 0.3901
+2025-05-13 22:33:23,344 INFO ==================== Epoch 36 ====================
+2025-05-13 22:34:06,117 INFO DEV  ae_p:77.38 ae_r:72.22 ae_f:74.71, dev_aspects_num_acc: 0.3712
+2025-05-13 22:34:06,118 INFO TEST  ae_p:78.74 ae_r:72.04 ae_f:75.24, test_aspects_num_acc: 0.4037
+2025-05-13 22:34:06,118 INFO ==================== Epoch 37 ====================
+2025-05-13 22:34:48,535 INFO DEV  ae_p:79.62 ae_r:76.67 ae_f:78.11, dev_aspects_num_acc: 0.3409
+2025-05-13 22:34:48,536 INFO TEST  ae_p:79.02 ae_r:75.69 ae_f:77.32, test_aspects_num_acc: 0.3935
+2025-05-13 22:34:48,536 INFO ==================== Epoch 38 ====================
+2025-05-13 22:35:32,232 INFO DEV  ae_p:78.29 ae_r:74.81 ae_f:76.52, dev_aspects_num_acc: 0.3561
+2025-05-13 22:35:32,233 INFO TEST  ae_p:78.73 ae_r:74.07 ae_f:76.33, test_aspects_num_acc: 0.3901
+2025-05-13 22:35:32,233 INFO ==================== Epoch 39 ====================
+2025-05-13 22:36:14,549 INFO DEV  ae_p:74.81 ae_r:73.7 ae_f:74.25, dev_aspects_num_acc: 0.3788
+2025-05-13 22:36:14,550 INFO TEST  ae_p:78.75 ae_r:75.36 ae_f:77.02, test_aspects_num_acc: 0.3850
+2025-05-13 22:36:14,550 INFO ==================== Epoch 40 ====================
+2025-05-13 22:36:56,284 INFO DEV  ae_p:79.12 ae_r:72.96 ae_f:75.92, dev_aspects_num_acc: 0.3561
+2025-05-13 22:36:56,285 INFO TEST  ae_p:80.15 ae_r:71.31 ae_f:75.47, test_aspects_num_acc: 0.3935
+2025-05-13 22:36:56,285 INFO ==================== Epoch 41 ====================
+2025-05-13 22:37:41,941 INFO DEV  ae_p:74.35 ae_r:74.07 ae_f:74.21, dev_aspects_num_acc: 0.3712
+2025-05-13 22:37:41,942 INFO TEST  ae_p:78.38 ae_r:76.09 ae_f:77.22, test_aspects_num_acc: 0.3918
+2025-05-13 22:37:41,942 INFO ==================== Epoch 42 ====================
+2025-05-13 22:38:23,796 INFO DEV  ae_p:77.47 ae_r:72.59 ae_f:74.95, dev_aspects_num_acc: 0.3561
+2025-05-13 22:38:23,796 INFO TEST  ae_p:79.14 ae_r:71.96 ae_f:75.38, test_aspects_num_acc: 0.4020
+2025-05-13 22:38:23,797 INFO ==================== Epoch 43 ====================
+2025-05-13 22:39:06,788 INFO DEV  ae_p:78.46 ae_r:75.56 ae_f:76.98, dev_aspects_num_acc: 0.3712
+2025-05-13 22:39:06,789 INFO TEST  ae_p:78.17 ae_r:73.99 ae_f:76.02, test_aspects_num_acc: 0.3935
+2025-05-13 22:39:06,789 INFO ==================== Epoch 44 ====================
+2025-05-13 22:39:48,360 INFO DEV  ae_p:77.6 ae_r:71.85 ae_f:74.62, dev_aspects_num_acc: 0.3485
+2025-05-13 22:39:48,361 INFO TEST  ae_p:79.89 ae_r:73.42 ae_f:76.52, test_aspects_num_acc: 0.3867
+2025-05-13 22:39:48,361 INFO ==================== Epoch 45 ====================
+2025-05-13 22:40:30,927 INFO DEV  ae_p:78.17 ae_r:72.96 ae_f:75.48, dev_aspects_num_acc: 0.3636
+2025-05-13 22:40:30,928 INFO TEST  ae_p:80.26 ae_r:74.47 ae_f:77.26, test_aspects_num_acc: 0.4003
+2025-05-13 22:40:30,928 INFO ==================== Epoch 46 ====================
+2025-05-13 22:41:13,793 INFO DEV  ae_p:79.15 ae_r:75.93 ae_f:77.5, dev_aspects_num_acc: 0.3409
+2025-05-13 22:41:13,794 INFO TEST  ae_p:79.74 ae_r:75.28 ae_f:77.45, test_aspects_num_acc: 0.4072
+2025-05-13 22:41:13,794 INFO ==================== Epoch 47 ====================
+2025-05-13 22:41:54,349 INFO DEV  ae_p:80.93 ae_r:77.04 ae_f:78.94, dev_aspects_num_acc: 0.3409
+2025-05-13 22:41:54,350 INFO TEST  ae_p:79.47 ae_r:75.61 ae_f:77.49, test_aspects_num_acc: 0.4123
+2025-05-13 22:41:54,350 INFO ==================== Epoch 48 ====================
+2025-05-13 22:42:34,519 INFO DEV  ae_p:78.87 ae_r:77.41 ae_f:78.13, dev_aspects_num_acc: 0.3409
+2025-05-13 22:42:34,520 INFO TEST  ae_p:78.8 ae_r:76.82 ae_f:77.8, test_aspects_num_acc: 0.4089
+2025-05-13 22:42:34,520 INFO ==================== Epoch 49 ====================
+2025-05-13 22:43:14,083 INFO DEV  ae_p:75.63 ae_r:78.15 ae_f:76.87, dev_aspects_num_acc: 0.3561
+2025-05-13 22:43:14,084 INFO TEST  ae_p:78.2 ae_r:78.2 ae_f:78.2, test_aspects_num_acc: 0.4225
+2025-05-13 22:43:14,084 INFO ==================== Epoch 50 ====================
+2025-05-13 22:43:52,228 INFO DEV  ae_p:74.8 ae_r:69.26 ae_f:71.92, dev_aspects_num_acc: 0.3712
+2025-05-13 22:43:52,229 INFO TEST  ae_p:78.33 ae_r:71.47 ae_f:74.75, test_aspects_num_acc: 0.3969
+2025-05-13 22:43:52,229 INFO ==================== Epoch 51 ====================
+2025-05-13 22:44:30,984 INFO DEV  ae_p:78.03 ae_r:76.3 ae_f:77.15, dev_aspects_num_acc: 0.3636
+2025-05-13 22:44:30,985 INFO TEST  ae_p:78.92 ae_r:75.85 ae_f:77.36, test_aspects_num_acc: 0.4140
+2025-05-13 22:44:30,985 INFO ==================== Epoch 52 ====================
+2025-05-13 22:45:10,678 INFO DEV  ae_p:78.31 ae_r:78.89 ae_f:78.6, dev_aspects_num_acc: 0.3712
+2025-05-13 22:45:10,679 INFO TEST  ae_p:78.35 ae_r:77.15 ae_f:77.75, test_aspects_num_acc: 0.3969
+2025-05-13 22:45:10,679 INFO ==================== Epoch 53 ====================
+2025-05-13 22:45:50,283 INFO DEV  ae_p:76.33 ae_r:80.0 ae_f:78.12, dev_aspects_num_acc: 0.4091
+2025-05-13 22:45:50,284 INFO TEST  ae_p:77.61 ae_r:78.93 ae_f:78.26, test_aspects_num_acc: 0.4020
+2025-05-13 22:45:50,284 INFO ==================== Epoch 54 ====================
+2025-05-13 22:46:27,855 INFO DEV  ae_p:80.99 ae_r:72.59 ae_f:76.56, dev_aspects_num_acc: 0.3561
+2025-05-13 22:46:27,855 INFO TEST  ae_p:80.73 ae_r:71.96 ae_f:76.09, test_aspects_num_acc: 0.4174
+2025-05-13 22:46:27,856 INFO ==================== Epoch 55 ====================
+2025-05-13 22:47:06,454 INFO DEV  ae_p:76.73 ae_r:78.15 ae_f:77.43, dev_aspects_num_acc: 0.3712
+2025-05-13 22:47:06,455 INFO TEST  ae_p:79.58 ae_r:77.39 ae_f:78.47, test_aspects_num_acc: 0.4174
+2025-05-13 22:47:06,455 INFO ==================== Epoch 56 ====================
+2025-05-13 22:47:45,491 INFO DEV  ae_p:79.01 ae_r:76.67 ae_f:77.82, dev_aspects_num_acc: 0.3788
+2025-05-13 22:47:45,492 INFO TEST  ae_p:79.83 ae_r:74.07 ae_f:76.84, test_aspects_num_acc: 0.3884
+2025-05-13 22:47:45,492 INFO ==================== Epoch 57 ====================
+2025-05-13 22:48:25,152 INFO DEV  ae_p:79.47 ae_r:77.41 ae_f:78.42, dev_aspects_num_acc: 0.3636
+2025-05-13 22:48:25,153 INFO TEST  ae_p:79.84 ae_r:75.12 ae_f:77.41, test_aspects_num_acc: 0.4293
+2025-05-13 22:48:25,153 INFO ==================== Epoch 58 ====================
+2025-05-13 22:49:04,554 INFO DEV  ae_p:79.69 ae_r:77.04 ae_f:78.34, dev_aspects_num_acc: 0.3864
+2025-05-13 22:49:04,555 INFO TEST  ae_p:80.4 ae_r:75.77 ae_f:78.01, test_aspects_num_acc: 0.4157
+2025-05-13 22:49:04,556 INFO ==================== Epoch 59 ====================
+2025-05-13 22:49:44,120 INFO DEV  ae_p:79.3 ae_r:75.19 ae_f:77.19, dev_aspects_num_acc: 0.3939
+2025-05-13 22:49:44,121 INFO TEST  ae_p:79.36 ae_r:74.15 ae_f:76.67, test_aspects_num_acc: 0.4259
+2025-05-13 22:49:44,121 INFO ==================== Epoch 60 ====================
+2025-05-13 22:50:23,289 INFO DEV  ae_p:79.76 ae_r:74.44 ae_f:77.01, dev_aspects_num_acc: 0.4091
+2025-05-13 22:50:23,290 INFO TEST  ae_p:80.07 ae_r:73.91 ae_f:76.86, test_aspects_num_acc: 0.4293
+2025-05-13 22:50:23,290 INFO ==================== Epoch 61 ====================
+2025-05-13 22:51:03,068 INFO DEV  ae_p:78.11 ae_r:76.67 ae_f:77.38, dev_aspects_num_acc: 0.3864
+2025-05-13 22:51:03,069 INFO TEST  ae_p:79.48 ae_r:76.58 ae_f:78.0, test_aspects_num_acc: 0.4378
+2025-05-13 22:51:03,069 INFO ==================== Epoch 62 ====================
+2025-05-13 22:51:42,170 INFO DEV  ae_p:79.09 ae_r:77.04 ae_f:78.05, dev_aspects_num_acc: 0.4167
+2025-05-13 22:51:42,171 INFO TEST  ae_p:80.2 ae_r:77.15 ae_f:78.65, test_aspects_num_acc: 0.4344
+2025-05-13 22:51:42,171 INFO ==================== Epoch 63 ====================
+2025-05-13 22:52:22,190 INFO DEV  ae_p:79.54 ae_r:76.3 ae_f:77.88, dev_aspects_num_acc: 0.3939
+2025-05-13 22:52:22,191 INFO TEST  ae_p:81.08 ae_r:76.74 ae_f:78.85, test_aspects_num_acc: 0.3901
+2025-05-13 22:52:22,191 INFO ==================== Epoch 64 ====================
+2025-05-13 22:53:00,337 INFO DEV  ae_p:79.07 ae_r:75.56 ae_f:77.27, dev_aspects_num_acc: 0.4242
+2025-05-13 22:53:00,338 INFO TEST  ae_p:80.82 ae_r:75.45 ae_f:78.04, test_aspects_num_acc: 0.4361
+2025-05-13 22:53:00,339 INFO ==================== Epoch 65 ====================
+2025-05-13 22:53:40,324 INFO DEV  ae_p:78.93 ae_r:76.3 ae_f:77.59, dev_aspects_num_acc: 0.4167
+2025-05-13 22:53:40,325 INFO TEST  ae_p:80.77 ae_r:76.58 ae_f:78.62, test_aspects_num_acc: 0.4463
+2025-05-13 22:53:40,325 INFO ==================== Epoch 66 ====================
+2025-05-13 22:54:18,625 INFO DEV  ae_p:79.92 ae_r:76.67 ae_f:78.26, dev_aspects_num_acc: 0.4242
+2025-05-13 22:54:18,626 INFO TEST  ae_p:80.77 ae_r:76.58 ae_f:78.62, test_aspects_num_acc: 0.4412
+2025-05-13 22:54:18,626 INFO ==================== Epoch 67 ====================
+2025-05-13 22:54:57,257 INFO DEV  ae_p:80.39 ae_r:75.93 ae_f:78.1, dev_aspects_num_acc: 0.3864
+2025-05-13 22:54:57,258 INFO TEST  ae_p:80.47 ae_r:75.45 ae_f:77.88, test_aspects_num_acc: 0.4566
+2025-05-13 22:54:57,258 INFO ==================== Epoch 68 ====================
+2025-05-13 22:55:36,677 INFO DEV  ae_p:78.71 ae_r:76.67 ae_f:77.67, dev_aspects_num_acc: 0.4242
+2025-05-13 22:55:36,678 INFO TEST  ae_p:79.68 ae_r:75.93 ae_f:77.76, test_aspects_num_acc: 0.4549
+2025-05-13 22:55:36,678 INFO ==================== Epoch 69 ====================
+2025-05-13 22:56:16,264 INFO DEV  ae_p:79.17 ae_r:77.41 ae_f:78.28, dev_aspects_num_acc: 0.4167
+2025-05-13 22:56:16,265 INFO TEST  ae_p:79.09 ae_r:76.01 ae_f:77.52, test_aspects_num_acc: 0.4532
+2025-05-13 22:56:16,265 INFO ==================== Epoch 70 ====================
+2025-05-13 22:56:56,333 INFO DEV  ae_p:77.09 ae_r:78.52 ae_f:77.8, dev_aspects_num_acc: 0.4167
+2025-05-13 22:56:56,334 INFO TEST  ae_p:78.96 ae_r:77.23 ae_f:78.08, test_aspects_num_acc: 0.4702
+2025-05-13 22:56:56,334 INFO ==================== Epoch 71 ====================
+2025-05-13 22:57:34,967 INFO DEV  ae_p:77.26 ae_r:79.26 ae_f:78.24, dev_aspects_num_acc: 0.4015
+2025-05-13 22:57:34,967 INFO TEST  ae_p:78.77 ae_r:76.99 ae_f:77.87, test_aspects_num_acc: 0.4821
+2025-05-13 22:57:34,967 INFO ==================== Epoch 72 ====================
+2025-05-13 22:58:15,171 INFO DEV  ae_p:78.1 ae_r:79.26 ae_f:78.68, dev_aspects_num_acc: 0.4167
+2025-05-13 22:58:15,171 INFO TEST  ae_p:79.85 ae_r:77.71 ae_f:78.77, test_aspects_num_acc: 0.4770
+2025-05-13 22:58:15,171 INFO ==================== Epoch 73 ====================
+2025-05-13 22:58:54,393 INFO DEV  ae_p:78.18 ae_r:79.63 ae_f:78.9, dev_aspects_num_acc: 0.4015
+2025-05-13 22:58:54,394 INFO TEST  ae_p:80.23 ae_r:77.96 ae_f:79.08, test_aspects_num_acc: 0.4770
+2025-05-13 22:58:54,394 INFO ==================== Epoch 74 ====================
+2025-05-13 22:59:34,074 INFO DEV  ae_p:78.73 ae_r:78.15 ae_f:78.44, dev_aspects_num_acc: 0.4167
+2025-05-13 22:59:34,075 INFO TEST  ae_p:79.77 ae_r:77.31 ae_f:78.52, test_aspects_num_acc: 0.4872
+2025-05-13 22:59:34,075 INFO ==================== Epoch 75 ====================
+2025-05-13 23:00:13,483 INFO DEV  ae_p:79.01 ae_r:76.67 ae_f:77.82, dev_aspects_num_acc: 0.4470
+2025-05-13 23:00:13,484 INFO TEST  ae_p:80.24 ae_r:76.66 ae_f:78.41, test_aspects_num_acc: 0.4838
+2025-05-13 23:00:13,484 INFO ==================== Epoch 76 ====================
+2025-05-13 23:00:52,080 INFO DEV  ae_p:81.35 ae_r:75.93 ae_f:78.54, dev_aspects_num_acc: 0.4697
+2025-05-13 23:00:52,080 INFO TEST  ae_p:80.82 ae_r:74.8 ae_f:77.69, test_aspects_num_acc: 0.5111
+2025-05-13 23:00:52,081 INFO ==================== Epoch 77 ====================
+2025-05-13 23:01:32,266 INFO DEV  ae_p:82.54 ae_r:77.04 ae_f:79.69, dev_aspects_num_acc: 0.4621
+2025-05-13 23:01:32,266 INFO TEST  ae_p:80.36 ae_r:74.96 ae_f:77.57, test_aspects_num_acc: 0.5111
+2025-05-13 23:01:32,267 INFO ==================== Epoch 78 ====================
+2025-05-13 23:02:16,388 INFO DEV  ae_p:80.3 ae_r:80.0 ae_f:80.15, dev_aspects_num_acc: 0.4545
+2025-05-13 23:02:16,389 INFO TEST  ae_p:80.75 ae_r:78.53 ae_f:79.62, test_aspects_num_acc: 0.4906
+2025-05-13 23:02:16,389 INFO ==================== Epoch 79 ====================
+2025-05-13 23:02:59,731 INFO DEV  ae_p:80.44 ae_r:80.74 ae_f:80.59, dev_aspects_num_acc: 0.4773
+2025-05-13 23:02:59,732 INFO TEST  ae_p:81.11 ae_r:79.66 ae_f:80.38, test_aspects_num_acc: 0.5128
+2025-05-13 23:02:59,733 INFO ==================== Epoch 80 ====================
+2025-05-13 23:03:43,072 INFO DEV  ae_p:80.23 ae_r:78.15 ae_f:79.17, dev_aspects_num_acc: 0.4697
+2025-05-13 23:03:43,072 INFO TEST  ae_p:81.76 ae_r:78.44 ae_f:80.07, test_aspects_num_acc: 0.4957
+2025-05-13 23:03:43,072 INFO ==================== Epoch 81 ====================
+2025-05-13 23:04:26,417 INFO DEV  ae_p:80.86 ae_r:76.67 ae_f:78.71, dev_aspects_num_acc: 0.4773
+2025-05-13 23:04:26,418 INFO TEST  ae_p:82.36 ae_r:76.42 ae_f:79.28, test_aspects_num_acc: 0.5162
+2025-05-13 23:04:26,418 INFO ==================== Epoch 82 ====================
+2025-05-13 23:05:08,770 INFO DEV  ae_p:81.18 ae_r:76.67 ae_f:78.86, dev_aspects_num_acc: 0.4697
+2025-05-13 23:05:08,770 INFO TEST  ae_p:82.12 ae_r:75.93 ae_f:78.91, test_aspects_num_acc: 0.4974
+2025-05-13 23:05:08,771 INFO ==================== Epoch 83 ====================
+2025-05-13 23:05:52,402 INFO DEV  ae_p:82.06 ae_r:79.63 ae_f:80.83, dev_aspects_num_acc: 0.4848
+2025-05-13 23:05:52,403 INFO TEST  ae_p:81.41 ae_r:78.44 ae_f:79.9, test_aspects_num_acc: 0.5077
+2025-05-13 23:05:52,403 INFO ==================== Epoch 84 ====================
+2025-05-13 23:06:34,661 INFO DEV  ae_p:81.99 ae_r:79.26 ae_f:80.6, dev_aspects_num_acc: 0.4773
+2025-05-13 23:06:34,662 INFO TEST  ae_p:81.03 ae_r:76.5 ae_f:78.7, test_aspects_num_acc: 0.5060
+2025-05-13 23:06:34,662 INFO ==================== Epoch 85 ====================
+2025-05-13 23:07:18,158 INFO DEV  ae_p:79.7 ae_r:78.52 ae_f:79.1, dev_aspects_num_acc: 0.4773
+2025-05-13 23:07:18,159 INFO TEST  ae_p:80.32 ae_r:77.07 ae_f:78.66, test_aspects_num_acc: 0.5026
+2025-05-13 23:07:18,159 INFO ==================== Epoch 86 ====================
+2025-05-13 23:08:01,352 INFO DEV  ae_p:79.1 ae_r:78.52 ae_f:78.81, dev_aspects_num_acc: 0.4773
+2025-05-13 23:08:01,353 INFO TEST  ae_p:79.73 ae_r:77.8 ae_f:78.75, test_aspects_num_acc: 0.4991
+2025-05-13 23:08:01,354 INFO ==================== Epoch 87 ====================
+2025-05-13 23:08:44,254 INFO DEV  ae_p:79.55 ae_r:79.26 ae_f:79.41, dev_aspects_num_acc: 0.4545
+2025-05-13 23:08:44,256 INFO TEST  ae_p:79.69 ae_r:78.2 ae_f:78.94, test_aspects_num_acc: 0.5009
+2025-05-13 23:08:44,256 INFO ==================== Epoch 88 ====================
+2025-05-13 23:09:27,238 INFO DEV  ae_p:78.6 ae_r:78.89 ae_f:78.74, dev_aspects_num_acc: 0.4697
+2025-05-13 23:09:27,239 INFO TEST  ae_p:79.46 ae_r:78.69 ae_f:79.07, test_aspects_num_acc: 0.4991
+2025-05-13 23:09:27,239 INFO ==================== Epoch 89 ====================
+2025-05-13 23:10:09,237 INFO DEV  ae_p:79.78 ae_r:78.89 ae_f:79.33, dev_aspects_num_acc: 0.4545
+2025-05-13 23:10:09,238 INFO TEST  ae_p:80.32 ae_r:78.04 ae_f:79.16, test_aspects_num_acc: 0.5094
+2025-05-13 23:10:09,238 INFO ==================== Epoch 90 ====================
+2025-05-13 23:10:51,953 INFO DEV  ae_p:80.22 ae_r:79.63 ae_f:79.93, dev_aspects_num_acc: 0.4697
+2025-05-13 23:10:51,954 INFO TEST  ae_p:81.15 ae_r:79.17 ae_f:80.15, test_aspects_num_acc: 0.5060
+2025-05-13 23:10:51,955 INFO ==================== Epoch 91 ====================
+2025-05-13 23:11:33,935 INFO DEV  ae_p:80.75 ae_r:79.26 ae_f:80.0, dev_aspects_num_acc: 0.4697
+2025-05-13 23:11:33,935 INFO TEST  ae_p:81.14 ae_r:78.77 ae_f:79.93, test_aspects_num_acc: 0.4957
+2025-05-13 23:11:33,935 INFO ==================== Epoch 92 ====================
+2025-05-13 23:12:20,475 INFO DEV  ae_p:80.75 ae_r:79.26 ae_f:80.0, dev_aspects_num_acc: 0.4773
+2025-05-13 23:12:20,476 INFO TEST  ae_p:81.12 ae_r:78.69 ae_f:79.88, test_aspects_num_acc: 0.4991
+2025-05-13 23:12:20,476 INFO ==================== Epoch 93 ====================
+2025-05-13 23:13:04,285 INFO DEV  ae_p:81.37 ae_r:79.26 ae_f:80.3, dev_aspects_num_acc: 0.4773
+2025-05-13 23:13:04,286 INFO TEST  ae_p:81.17 ae_r:78.61 ae_f:79.87, test_aspects_num_acc: 0.5077
+2025-05-13 23:13:04,287 INFO ==================== Epoch 94 ====================
+2025-05-13 23:13:48,607 INFO DEV  ae_p:80.08 ae_r:78.89 ae_f:79.48, dev_aspects_num_acc: 0.4621
+2025-05-13 23:13:48,609 INFO TEST  ae_p:81.08 ae_r:78.85 ae_f:79.95, test_aspects_num_acc: 0.5043
+2025-05-13 23:13:48,609 INFO ==================== Epoch 95 ====================
+2025-05-13 23:14:31,484 INFO DEV  ae_p:81.06 ae_r:79.26 ae_f:80.15, dev_aspects_num_acc: 0.4773
+2025-05-13 23:14:31,485 INFO TEST  ae_p:81.16 ae_r:78.53 ae_f:79.82, test_aspects_num_acc: 0.5009
+2025-05-13 23:14:31,485 INFO ==================== Epoch 96 ====================
+2025-05-13 23:15:14,907 INFO DEV  ae_p:79.7 ae_r:78.52 ae_f:79.1, dev_aspects_num_acc: 0.4697
+2025-05-13 23:15:14,908 INFO TEST  ae_p:81.15 ae_r:78.85 ae_f:79.98, test_aspects_num_acc: 0.5094
+2025-05-13 23:15:14,908 INFO ==================== Epoch 97 ====================
+2025-05-13 23:15:58,059 INFO DEV  ae_p:80.08 ae_r:78.89 ae_f:79.48, dev_aspects_num_acc: 0.4773
+2025-05-13 23:15:58,060 INFO TEST  ae_p:81.0 ae_r:78.44 ae_f:79.7, test_aspects_num_acc: 0.5043
+2025-05-13 23:15:58,060 INFO ==================== Epoch 98 ====================
+2025-05-13 23:16:40,960 INFO DEV  ae_p:80.08 ae_r:78.89 ae_f:79.48, dev_aspects_num_acc: 0.4773
+2025-05-13 23:16:40,961 INFO TEST  ae_p:81.24 ae_r:78.61 ae_f:79.9, test_aspects_num_acc: 0.5043
+2025-05-13 23:16:40,961 INFO ==================== Epoch 99 ====================
+2025-05-13 23:17:24,770 INFO DEV  ae_p:80.08 ae_r:78.89 ae_f:79.48, dev_aspects_num_acc: 0.4697
+2025-05-13 23:17:24,771 INFO TEST  ae_p:81.29 ae_r:78.53 ae_f:79.88, test_aspects_num_acc: 0.4991
+2025-05-13 23:17:24,771 INFO =================== Epoch 100 ====================
+2025-05-13 23:18:08,629 INFO DEV  ae_p:80.0 ae_r:78.52 ae_f:79.25, dev_aspects_num_acc: 0.4697
+2025-05-13 23:18:08,630 INFO TEST  ae_p:81.36 ae_r:78.53 ae_f:79.92, test_aspects_num_acc: 0.5009
+2025-05-13 23:18:08,630 INFO ====== Training complete in: 1:11:40.412297 ======
+2025-05-13 23:18:08,630 INFO ---------------------------
+2025-05-13 23:18:08,630 INFO BEST DEV:-----
+2025-05-13 23:18:08,630 INFO BEST DEV  ae_p:82.06 ae_r:79.63 ae_f:80.83
+2025-05-13 23:18:08,630 INFO BEST DEV TEST:-----
+2025-05-13 23:18:08,630 INFO BEST DEV--TEST  ae_p:81.41 ae_r:78.44 ae_f:79.9
+2025-05-13 23:18:08,630 INFO BEST TEST:-----
+2025-05-13 23:18:08,630 INFO BEST TEST  ae_p:81.11 ae_r:79.66 ae_f:80.38
