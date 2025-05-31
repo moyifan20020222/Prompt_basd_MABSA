@@ -36,7 +36,7 @@
 
 | MATE任务       | Precision（%） | Recall（%） | F1 (%)         |
 |:--------------|------------:|:----------------:|---------------|
-| Twitter15     |  77.32  |  70.68  | 73.85 |
+| Twitter15     |  77.71  |  71.94  | 74.71 |
 | Twitter17     |  80.91  |  81.04  | 80.97 |
 
 
@@ -44,3 +44,15 @@
 |:--------------|------------:|:----------------:|---------------|
 | Twitter15     |  52.02  |  48.51  | 50.20 |
 | Twitter17     |  56.39  |  51.13  | 53.63 |
+
+
+使用的模型：
+本文使用的视觉模型为vit_base_patch32_224 字幕模型为BLIP 相关度部分为 BLIP-ITM 三个模型可以在Huggingface下载
+也可以在镜像网站下载：
+[https://hf-mirror.com/models?sort=trending&search=vit_base_patch32_224](https://hf-mirror.com/google/vit-base-patch32-224-in21k)
+https://hf-mirror.com/Salesforce/blip-image-captioning-base
+https://hf-mirror.com/Salesforce/blip-itm-base-coco
+本文使用的数据集的下载：
+https://drive.google.com/drive/folders/1NgPH5xhz5dF-Zwxe-8CjjsgQJ5VaQ8KL?usp=sharing
+但原始部分缺失了部分图像信息，所以需要单独去找完整的Twitter数据集：
+IJCAI2019_data
