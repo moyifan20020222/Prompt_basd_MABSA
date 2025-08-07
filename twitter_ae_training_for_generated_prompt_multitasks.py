@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from collections import Counter
 from datetime import datetime
 from torch import optim
 import torch
@@ -157,7 +158,7 @@ def main(rank, args):
     model.to(device)
     parameters = get_parameter_number(model)
     print(parameters)
-
+    logger.info("The parameters of model use: {}".format(parameters))
     optimizer = AdamW(model.parameters(), lr=args.lr, betas=(0.9, 0.999))
 
     scaler = GradScaler() if args.amp else None
@@ -211,6 +212,62 @@ def main(rank, args):
     best_dev_test_res = None
     best_test_res = None
 
+    # pos_num = 0
+    # neg_num = 0
+    # neu_num = 0
+    # for i, batch in enumerate(dev_loader):
+    #     if args.task == 'twitter_ae':
+    #         aesc_infos = {
+    #             key: value
+    #             for key, value in batch['TWITTER_AE'].items()
+    #         }
+    #     sentiment_label_ids = [3, 4, 5]
+    #
+    #     # 调用函数统计
+    #     sentiment_counts = get_sentiment_proportions(aesc_infos['spans'], sentiment_label_ids)
+    #
+    #     # 遍历情感ID列表，获取每个ID的计数
+    #     pos_num += sentiment_counts[3]
+    #     neu_num += sentiment_counts[4]
+    #     neg_num += sentiment_counts[5]
+    # print("验证集各个情绪数量 pos neu neg", pos_num, neu_num, neg_num)
+    #
+    # pos_num = 0
+    # neg_num = 0
+    # neu_num = 0
+    # for i, batch in enumerate(test_loader):
+    #     if args.task == 'twitter_ae':
+    #         aesc_infos = {
+    #             key: value
+    #             for key, value in batch['TWITTER_AE'].items()
+    #         }
+    #     sentiment_label_ids = [3, 4, 5]
+    #
+    #     # 调用函数统计
+    #     sentiment_counts = get_sentiment_proportions(aesc_infos['spans'], sentiment_label_ids)
+    #
+    #     # 遍历情感ID列表，获取每个ID的计数
+    #     pos_num += sentiment_counts[3]
+    #     neu_num += sentiment_counts[4]
+    #     neg_num += sentiment_counts[5]
+    # print("测试集各个情绪数量 pos neu neg", pos_num, neu_num, neg_num)
+
+    sentiment_counts = Counter()
+    # sentiment_label_ids = [3, 4, 5]
+    # for i, batch in enumerate(train_loader):
+    #
+    #     aesc_infos = {
+    #             key: value
+    #             for key, value in batch['TWITTER_AE'].items()
+    #     }
+    #     print("ss", aesc_infos)
+    #     for sample_result in aesc_infos['spans']:  # 遍历 batch 中的每个样本
+    #         for aspect_senti_pair in sample_result:  # 遍历样本中的每个三元组
+    #             sentiment_id = aspect_senti_pair[2]  # 情感 ID 是三元组的第三个元素
+    #             if sentiment_id in sentiment_label_ids:  # 确保是有效的情感 ID
+    #                 sentiment_counts[sentiment_id] += 1
+    # print("总数", sentiment_counts)
+
     while epoch < args.epochs:
         logger.info('Epoch {}'.format(epoch + 1), pad=True)
         fine_tune(epoch=epoch,
@@ -226,7 +283,9 @@ def main(rank, args):
                   log_interval=1,
                   tb_writer=tb_writer,
                   tb_interval=1,
-                  scaler=scaler)
+                  scaler=scaler,
+                  # sentiment_counts=sentiment_counts
+                  )
 
         if (epoch + 1) % args.eval_every == 0:
             # train_dev = eval_utils.eval(model, train_loader, metric, device)
@@ -285,6 +344,24 @@ def main(rank, args):
 
     # if not args.cpu:
     #     cleanup_process()
+
+
+def get_sentiment_proportions(batch_results, sentiment_label_ids):
+    """
+    统计一个 batch 中每个情感 ID 的出现比例。
+
+    :param batch_results: 一个 batch 的 Aspect-Sentiment 三元组列表。
+                          例如：[[[s,e,senti_id], ...], [[s,e,senti_id], ...], ...]
+    :param sentiment_label_ids: list, 包含所有有效情感 ID 的列表，例如 [3, 4, 5]。
+    :return: Counter, 每个情感 ID 及其出现次数。
+    """
+    sentiment_counts = Counter()
+    for sample_result in batch_results:  # 遍历 batch 中的每个样本
+        for aspect_senti_pair in sample_result:  # 遍历样本中的每个三元组
+            sentiment_id = aspect_senti_pair[2]  # 情感 ID 是三元组的第三个元素
+            if sentiment_id in sentiment_label_ids:  # 确保是有效的情感 ID
+                sentiment_counts[sentiment_id] += 1
+    return sentiment_counts
 
 
 def parse_args():

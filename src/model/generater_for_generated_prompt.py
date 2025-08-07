@@ -9,6 +9,7 @@ import torch.nn.functional as F
 # from fastNLP.core.utils import _get_model_device
 from functools import partial
 
+
 def _get_model_device(model):
     r"""
     传入一个nn.Module的模型，获取它所在的device
@@ -26,12 +27,12 @@ def _get_model_device(model):
         return parameters[0].device
 
 
-
 class SequenceGeneratorModel(nn.Module):
     """
     用于封装Seq2SeqModel使其可以做生成任务
 
     """
+
     def __init__(self,
                  seq2seq_model: Seq2SeqModel,
                  BART_model,
@@ -69,6 +70,8 @@ class SequenceGeneratorModel(nn.Module):
         self.BART_model = BART_model
         self.restricter = restricter
         self.sc_only = sc_only
+        self.decoder = BART_model.decoder
+        self.num_beams = num_beams
         self.generator = SequenceGenerator(
             # seq2seq_model.decoder,  # 这里同样做出修改
             BART_model.decoder,
@@ -98,6 +101,7 @@ class SequenceGeneratorModel(nn.Module):
                 score=None,
                 caption_nouns=None,
                 sentence_nouns=None,
+                training=None,
                 first=None):
         """
         透传调用seq2seq_model的forward
@@ -121,7 +125,8 @@ class SequenceGeneratorModel(nn.Module):
                                   image_caption_mask=image_caption_mask,
                                   score=score,
                                   caption_nouns=caption_nouns,
-                                  sentence_nouns=sentence_nouns
+                                  sentence_nouns=sentence_nouns,
+                                  training=training
                                   )
 
     def predict(self,
@@ -154,25 +159,59 @@ class SequenceGeneratorModel(nn.Module):
         #                                          aesc_infos,
         #                                          aspects_num)
         # 同样的 因为在改Prepare_state中 需要传递损失，所以这里的返回值也做出修改，不过测试阶段并不需要这些损失。
-        state, diversity_loss, l2_reg_loss, pseudo_loss, loss_crd = self.BART_model.prepare_state(
+        state, diversity_loss, l2_reg_loss, pseudo_loss, loss_crd, senti_label, sentiment_labels_mapped,\
+            hidden_state, logits = self.BART_model.prepare_state(
             input_ids, image_features,
             attention_mask,
             aesc_infos,
             aspects_num, sentence_mask, image_mask, mlm_message, image_caption_valid,
-            image_caption_mask, score, caption_nouns, sentence_nouns)
+            image_caption_mask, score, caption_nouns, sentence_nouns, Training=False)
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)
         # print("预测时的信息 tgt_tokens", tgt_tokens)
         # print("前三个token 和后面的信息", tgt_tokens[:, :3], tgt_tokens[:, 3:])
         if self.sc_only:
-            result = self.generator.generate(
+            result, scores_logits = self.generator.generate(
                 state,
                 tokens=tgt_tokens[:, :3],  # the prompt is provided to the model
                 gt_tokens=tgt_tokens[:, 3:])
+            scores_logits = torch.stack(scores_logits, dim=1)
         else:
-            result = self.generator.generate(
-                state,
-                tokens=tgt_tokens[:, :3])  # the prompt is provided to the model
-        return result
+            if self.num_beams == 1:
+                result, scores_logits = self.generator.generate(
+                    state,
+                    tokens=tgt_tokens[:, :3])  # the prompt is provided to the model
+                scores_logits = torch.stack(scores_logits, dim=1)
+            else:
+                result, scores_logits = self.generator.generate(
+                    state,
+                    tokens=tgt_tokens[:, :3])  # the prompt is provided to the model
+                decoder_input_for_recalc = result[:, :-1]
+
+                # 一次性地、完整地调用decoder
+                _hidden_states, all_step_logits = self.decoder.decode(
+                    tokens=decoder_input_for_recalc,
+                    state=state
+                )
+                scores_logits = all_step_logits
+        # scores表示了预测每一个Aspect的情绪标签的值，sentiment_labels_mapped是真实标签内容
+        y_scores_list_flat = []
+        for i in range(scores_logits.size(0)):
+            num_aspects = aspects_num[i]
+            aspect_logits_for_sentence = scores_logits[i, :num_aspects, :]
+
+            # 从完整的vocab logits中，只提取出情感类别3, 4, 5对应的分数
+            # 形状是 [num_aspects, 3]
+            senti_logits = aspect_logits_for_sentence[:, [3, 4, 5]]
+            # 转换为概率分数
+            # 形状是 [num_aspects, 3]
+            senti_scores = torch.softmax(senti_logits, dim=1)
+
+            # 将这个句子的所有aspect的分数，作为一个列表，添加到总列表中
+            # .detach().cpu().numpy().tolist() 将其转换为纯Python列表
+            y_scores_list_flat.extend(senti_scores.detach().cpu().numpy().tolist())
+
+        # print("weidu", y_scores_list_flat, sentiment_labels_mapped)
+        return result, senti_label, sentiment_labels_mapped, y_scores_list_flat
 
 
 r"""
@@ -187,6 +226,7 @@ class SequenceGenerator:
     给定一个Seq2SeqDecoder，decode出句子
 
     """
+
     def __init__(self,
                  decoder: Seq2SeqDecoder,
                  max_length=20,
@@ -321,22 +361,23 @@ def greedy_generate(decoder,
     """
 
     # import ipdb; ipdb.set_trace()
+    scores_logits = []
     if sc_only:
-        token_ids = sc_generate(decoder,
-                                tokens=tokens,
-                                gt_tokens=gt_tokens,
-                                state=state,
-                                max_length=max_length,
-                                max_len_a=max_len_a,
-                                bos_token_id=bos_token_id,
-                                eos_token_id=eos_token_id,
-                                repetition_penalty=repetition_penalty,
-                                length_penalty=length_penalty,
-                                pad_token_id=pad_token_id,
-                                restricter=restricter)
-        return token_ids
+        token_ids, scores_logits = sc_generate(decoder,
+                                               tokens=tokens,
+                                               gt_tokens=gt_tokens,
+                                               state=state,
+                                               max_length=max_length,
+                                               max_len_a=max_len_a,
+                                               bos_token_id=bos_token_id,
+                                               eos_token_id=eos_token_id,
+                                               repetition_penalty=repetition_penalty,
+                                               length_penalty=length_penalty,
+                                               pad_token_id=pad_token_id,
+                                               restricter=restricter)
+        return token_ids, scores_logits
     if num_beams == 1:
-        token_ids = _no_beam_search_generate(
+        token_ids, scores_logits = _no_beam_search_generate(
             decoder,
             tokens=tokens,
             state=state,
@@ -364,7 +405,7 @@ def greedy_generate(decoder,
             pad_token_id=pad_token_id,
             restricter=restricter)
 
-    return token_ids
+    return token_ids, scores_logits
 
 
 def _no_beam_search_generate(decoder: Seq2SeqDecoder,
@@ -379,6 +420,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder,
                              pad_token_id=0,
                              restricter=None):
     device = _get_model_device(decoder)
+    all_step_scores = []  # 1. 初始化列表
     if tokens is None:
         if bos_token_id is None:
             raise RuntimeError(
@@ -420,7 +462,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder,
             max_lengths = (state.encoder_mask.sum(dim=1).float() *
                            max_len_a).long() + max_length
         else:
-            max_lengths = tokens.new_full((tokens.size(0), ),
+            max_lengths = tokens.new_full((tokens.size(0),),
                                           fill_value=max_length,
                                           dtype=torch.long)
         real_max_length = max_lengths.max().item()
@@ -430,14 +472,14 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder,
             max_lengths = state.encoder_mask.new_ones(
                 state.encoder_mask.size(0)).long() * max_length
         else:
-            max_lengths = tokens.new_full((tokens.size(0), ),
+            max_lengths = tokens.new_full((tokens.size(0),),
                                           fill_value=max_length,
                                           dtype=torch.long)
 
     while cur_len < real_max_length:
         scores = decoder.decode(tokens=token_ids,
                                 state=state)  # batch_size x vocab_size
-
+        all_step_scores.append(scores)
         if repetition_penalty != 1.0:
             token_scores = scores.gather(dim=1, index=token_ids)
             lt_zero_mask = token_scores.lt(0).float()
@@ -446,7 +488,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder,
             scores.scatter_(dim=1, index=token_ids, src=token_scores)
 
         if eos_token_id is not None and length_penalty != 1.0:
-            token_scores = scores / cur_len**length_penalty  # batch_size x vocab_size
+            token_scores = scores / cur_len ** length_penalty  # batch_size x vocab_size
             eos_mask = scores.new_ones(scores.size(1))
             eos_mask[eos_token_id] = 0
             eos_mask = eos_mask.unsqueeze(0).eq(1)
@@ -477,7 +519,7 @@ def _no_beam_search_generate(decoder: Seq2SeqDecoder,
         if dones.min() == 1:
             break
 
-    return token_ids
+    return token_ids, all_step_scores
 
 
 def sc_generate(decoder: Seq2SeqDecoder,
@@ -493,6 +535,7 @@ def sc_generate(decoder: Seq2SeqDecoder,
                 pad_token_id=0,
                 restricter=None):
     device = _get_model_device(decoder)
+    all_step_scores = []  # 1. 初始化列表
     if tokens is None:
         if bos_token_id is None:
             raise RuntimeError(
@@ -527,6 +570,7 @@ def sc_generate(decoder: Seq2SeqDecoder,
     while cur_len < max_length:
         scores = decoder.decode(tokens=token_ids, state=state,
                                 only_sc=True)  # batch_size x vocab_size
+        all_step_scores.append(scores)
         if restricter is not None:
             _, next_tokens = restricter(state, token_ids, scores, 1)
         else:
@@ -563,7 +607,7 @@ def sc_generate(decoder: Seq2SeqDecoder,
     # if cur_len == max_length:
     #     token_ids[:, -1].masked_fill_(~dones, eos_token_id)  # 若到最长长度仍未到EOS，则强制将最后一个词替换成eos
 
-    return token_ids
+    return token_ids, all_step_scores
 
 
 def _beam_search_generate(decoder: Seq2SeqDecoder,
@@ -583,6 +627,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
     # 进行beam search
     # import ipdb; ipdb.set_trace()
     device = _get_model_device(decoder)
+    all_step_scores = []  # 1. 初始化列表
     if tokens is None:
         if bos_token_id is None:
             raise RuntimeError(
@@ -637,7 +682,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
             max_lengths = (state.encoder_mask.sum(dim=1).float() *
                            max_len_a).long() + max_length
         else:
-            max_lengths = tokens.new_full((batch_size * num_beams, ),
+            max_lengths = tokens.new_full((batch_size * num_beams,),
                                           fill_value=max_length,
                                           dtype=torch.long)
         real_max_length = max_lengths.max().item()
@@ -647,7 +692,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
             max_lengths = state.encoder_mask.new_ones(
                 state.encoder_mask.size(0)).long() * max_length
         else:
-            max_lengths = tokens.new_full((batch_size * num_beams, ),
+            max_lengths = tokens.new_full((batch_size * num_beams,),
                                           fill_value=max_length,
                                           dtype=torch.long)
     hypos = [
@@ -691,6 +736,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
     while cur_len < real_max_length:
         scores = decoder.decode(token_ids,
                                 state)  # (bsz x num_beams, vocab_size)
+
         if repetition_penalty != 1.0:
             token_scores = scores.gather(dim=1, index=token_ids)
             lt_zero_mask = token_scores.lt(0).float()
@@ -709,7 +755,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
         scores = F.log_softmax(scores,
                                dim=-1)  # (batch_size * num_beams, vocab_size)
         _scores = scores + beam_scores[:,
-                                       None]  # (batch_size * num_beams, vocab_size)
+                           None]  # (batch_size * num_beams, vocab_size)
         _scores = _scores.view(batch_size,
                                -1)  # (batch_size, num_beams*vocab_size)
         # TODO 把限制加到这个位置
@@ -786,7 +832,7 @@ def _beam_search_generate(decoder: Seq2SeqDecoder,
 
         for batch_idx in range(batch_size):
             dones[batch_idx] = dones[batch_idx] or hypos[batch_idx].is_done(next_scores[batch_idx, 0].item()) or \
-                               max_lengths[batch_idx*num_beams]==cur_len+1
+                               max_lengths[batch_idx * num_beams] == cur_len + 1
 
         cur_len += 1
 
@@ -837,7 +883,7 @@ class BeamHypotheses(object):
         """
         Add a new hypothesis to the list.
         """
-        score = sum_logprobs / len(hyp)**self.length_penalty
+        score = sum_logprobs / len(hyp) ** self.length_penalty
         if len(self) < self.num_beams or score > self.worst_score:
             self.hyp.append((score, hyp))
             if len(self) > self.num_beams:
@@ -859,4 +905,4 @@ class BeamHypotheses(object):
         elif self.early_stopping:
             return True
         else:
-            return self.worst_score >= best_sum_logprobs / self.max_length**self.length_penalty
+            return self.worst_score >= best_sum_logprobs / self.max_length ** self.length_penalty

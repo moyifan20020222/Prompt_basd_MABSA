@@ -22,8 +22,8 @@ def eval(args, model, loader, metric, device):
         else:
             aesc_infos = {key: value for key, value in batch['AESC'].items()}
         # import ipdb; ipdb.set_trace()  分布式需要修改如下 model -> model.module
-        if args.world_size == 1:
-            predict, predict_aspects_num, pseudo_loss = model.predict(
+
+        predict, predict_aspects_num, pseudo_loss = model.predict(
                 input_ids=batch['input_ids'].to(device),
                 image_features=list(
                     map(lambda x: x.to(device), batch['image_features'])),
@@ -38,24 +38,8 @@ def eval(args, model, loader, metric, device):
                 score=batch['score'],
                 caption_nouns=batch['caption_nouns'],
                 sentence_nouns=batch['sentence_nouns']
-            )
-        else:
-            predict, predict_aspects_num, pseudo_loss = model.module.predict(
-                input_ids=batch['input_ids'].to(device),
-                image_features=list(
-                    map(lambda x: x.to(device), batch['image_features'])),
-                attention_mask=batch['attention_mask'].to(device),
-                aesc_infos=aesc_infos,
-                aspects_num=batch['aspects_num'],
-                sentence_mask=batch['sentence_mask'],  # 用于实现文本部分的截取，完成我们的Prompt修正SPD模块的内容、
-                image_mask=batch['my_image_mask'],
-                mlm_message=batch['MLM'],
-                image_caption_valid=batch['image_caption_valid'],
-                image_caption_mask=batch['image_caption_mask'],
-                score=batch['score'],
-                caption_nouns=batch['caption_nouns'],
-                sentence_nouns=batch['sentence_nouns']
-            )
+        )
+
         target_aspects_num = torch.tensor(batch['aspects_num']).to(predict_aspects_num.device)
         num_correct += torch.eq(predict_aspects_num, target_aspects_num).sum().float().item()
 
@@ -64,7 +48,7 @@ def eval(args, model, loader, metric, device):
         metric.evaluate(aesc_infos['spans'], predict,
                         aesc_infos['labels'].to(device))
         # break
-    aspects_num_eval_acc = num_correct / len(loader.dataset) * args.world_size
+    aspects_num_eval_acc = num_correct / len(loader.dataset)
     res = metric.get_metric()
     model.train()
     return res, aspects_num_eval_acc

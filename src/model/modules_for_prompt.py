@@ -68,10 +68,10 @@ def get_image_encoder(image_model_name):
             local_checkpoint_path), f"本地 vit_base_patch32_224 权重文件不存在: {local_checkpoint_path}"
         image_encoder = timm.create_model(image_model_name, pretrained=False, num_classes=0
                                           )  # 使用 checkpoint_path 从本地加载
-        with safe_open(local_checkpoint_path, framework="pt", device="cpu") as f: #  使用 safe_open 加载 state_dict
+        with safe_open(local_checkpoint_path, framework="pt", device="cpu") as f:  # 使用 safe_open 加载 state_dict
             state_dict = {k: f.get_tensor(k) for k in f.keys()}
         #  不需要像 nf_resnet50 那样过滤 'head.fc'，因为 vit_base_patch32_224 通常没有 head.fc 这样的分类头
-        image_encoder.load_state_dict(state_dict, strict=False) #  加载 state_dict 到模型
+        image_encoder.load_state_dict(state_dict, strict=False)  # 加载 state_dict 到模型
         return image_encoder
 
     elif is_clip_model(image_model_name):  # CLIP ViT 加载逻辑 (保持不变)
@@ -132,6 +132,7 @@ def _d_image_encoder(image_encoder_type, image_model_name, image_encoder):
         return image_encoder.config.hidden_size  # 通用的 AutoModel
     else:
         raise ValueError(f"不支持的图像编码器类型或模型名称: type={image_encoder_type}, name={image_model_name}")
+
 
 def encode_images(image_encoder, proj_image_features, frozen_image_encoder, pixel_values, d_image_encoder,
                   image_encoder_type):
@@ -198,7 +199,6 @@ class ImageEmbedding(nn.Module):
         if frozen_image_encoder:
             for p in self.image_encoder.parameters():
                 p.requires_grad = False
-                self.image_encoder.eval()
         # 转换部分 把图像嵌入换成文本嵌入的部分
         self.proj_image_features = nn.Linear(
             in_features=self.d_image_encoder,
@@ -259,21 +259,22 @@ class ImageEmbedding(nn.Module):
 
 class SentimentAwareMultiModalEmbedding(nn.Module):
     def __init__(self, config: MultiModalBartConfig,
-                 bart_embed_tokens: nn.Embedding, # BART原始词嵌入层
+                 bart_embed_tokens: nn.Embedding,  # BART原始词嵌入层
                  img_feat_id: int,
                  cls_token_id: int,
                  pad_token_id: int,
                  num_image_tokens: int,
-                 text_processor_num_sentiment_categories: int, # 从YourTextProcessor获取
-                 hidden_size: int): # BART的hidden_size
+                 text_processor_num_sentiment_categories: int,  # 从YourTextProcessor获取
+                 hidden_size: int):  # BART的hidden_size
         super().__init__()
         self.bart_embed_tokens = bart_embed_tokens
         self.img_feat_id = img_feat_id
         self.cls_token_id = cls_token_id
-        self.embed_dim = bart_embed_tokens.embedding_dim # 应该等于 hidden_size
+        self.embed_dim = bart_embed_tokens.embedding_dim  # 应该等于 hidden_size
 
         # 图像嵌入模块 (与MultiModalBartEncoder中的一致)
-        self.embed_images = ImageEmbedding(self.embed_dim, self.embed_dim, image_encoder_type, image_model_name, num_image_tokens=num_image_tokens)
+        self.embed_images = ImageEmbedding(self.embed_dim, self.embed_dim, image_encoder_type, image_model_name,
+                                           num_image_tokens=num_image_tokens)
         # 定义情感类别和映射 (与之前 BartInputEmbedderWithSenticNet 中的类似)
         self.sentiment_categories_map = {
             "strong_negative": 2,
@@ -295,7 +296,7 @@ class SentimentAwareMultiModalEmbedding(nn.Module):
         # self.fusion_activation = nn.ReLU() # 或者其他激活函数
 
     def forward(self, input_ids: torch.LongTensor,
-                image_features: list, # list of tensors
+                image_features: list,  # list of tensors
                 precomputed_sentiment_category_ids: torch.LongTensor,
                 sentence_mask: torch.BoolTensor):
         """
@@ -306,42 +307,46 @@ class SentimentAwareMultiModalEmbedding(nn.Module):
         """
         device = input_ids.device
         # 1. 获取原始BART词嵌入
-        textual_embeds = self.bart_embed_tokens(input_ids).to(device) # (B, S, D)
+        textual_embeds = self.bart_embed_tokens(input_ids).to(device)  # (B, S, D)
         precomputed_sentiment_category_ids = precomputed_sentiment_category_ids.to(device)
         # 2. 获取情感状态嵌入
         # print("11", precomputed_sentiment_category_ids.device)
-        sentiment_state_embeds = self.sentiment_category_embedder(precomputed_sentiment_category_ids).to(device) # (B, S, D)
+        sentiment_state_embeds = self.sentiment_category_embedder(precomputed_sentiment_category_ids).to(
+            device)  # (B, S, D)
 
         sentence_mask_float = sentence_mask.unsqueeze(-1).float().to(device)  # (B, S, 1)
         text_parts_original_embeds = textual_embeds * sentence_mask_float
 
         # 3. 融合文本词嵌入和情感状态嵌入
-        combined_text_sentiment_embeds = torch.cat([text_parts_original_embeds, sentiment_state_embeds], dim=-1).to(device) # (B, S, D*2)
-        fused_sentence_parts_embeds = torch.tanh(self.sentiment_fusion_mlp(combined_text_sentiment_embeds)).to(device) # (B, S, D)
+        combined_text_sentiment_embeds = torch.cat([text_parts_original_embeds, sentiment_state_embeds], dim=-1).to(
+            device)  # (B, S, D*2)
+        fused_sentence_parts_embeds = torch.tanh(self.sentiment_fusion_mlp(combined_text_sentiment_embeds)).to(
+            device)  # (B, S, D)
         # enhanced_textual_embeds = self.fusion_activation(enhanced_textual_embeds)
-        enhanced_textual_embeds = fused_sentence_parts_embeds * sentence_mask_float + textual_embeds * (1 - sentence_mask_float)
+        enhanced_textual_embeds = fused_sentence_parts_embeds * sentence_mask_float + textual_embeds * (
+                    1 - sentence_mask_float)
 
         # 4. 处理图像嵌入并替换 (与你原_embed_multi_modal逻辑类似)
         #    注意：这里我们用 enhanced_textual_embeds 作为基础
         final_combined_embeds = enhanced_textual_embeds.clone()
 
         # 定位图像特征在input_ids中的位置
-        image_placeholder_mask = (input_ids == self.img_feat_id) | (input_ids == self.cls_token_id) # 假设CLS也可能被图像替换
+        image_placeholder_mask = (input_ids == self.img_feat_id) | (input_ids == self.cls_token_id)  # 假设CLS也可能被图像替换
 
         # 获取图像嵌入 (注意：embed_images的输出是list of tensors)
         projected_image_embeds_list = self.embed_images(image_features)
 
         # 将图像嵌入放到对应位置
-        for i in range(input_ids.shape[0]): # 遍历batch
-            current_image_placeholder_mask = image_placeholder_mask[i] # (S,)
-            projected_img_embeds = projected_image_embeds_list[i] # (num_img_tokens_for_sample, D)
+        for i in range(input_ids.shape[0]):  # 遍历batch
+            current_image_placeholder_mask = image_placeholder_mask[i]  # (S,)
+            projected_img_embeds = projected_image_embeds_list[i]  # (num_img_tokens_for_sample, D)
 
             if projected_img_embeds is not None and len(projected_img_embeds) > 0:
                 # 确保替换的长度匹配
                 num_placeholders = current_image_placeholder_mask.sum().item()
                 if num_placeholders == len(projected_img_embeds):
                     final_combined_embeds[i, current_image_placeholder_mask] = projected_img_embeds
-                elif num_placeholders > 0 : # 如果长度不匹配，这是一个潜在问题
+                elif num_placeholders > 0:  # 如果长度不匹配，这是一个潜在问题
                     # print(f"Warning: Mismatch between image placeholders ({num_placeholders}) "
                     #       f"and projected image embeddings ({len(projected_img_embeds)}) for sample {i}. "
                     #       f"Using only the first {min(num_placeholders, len(projected_img_embeds))} embeddings.")
@@ -349,9 +354,95 @@ class SentimentAwareMultiModalEmbedding(nn.Module):
                     len_to_replace = min(num_placeholders, len(projected_img_embeds))
                     placeholder_indices = torch.where(current_image_placeholder_mask)[0]
                     if len_to_replace > 0:
-                        final_combined_embeds[i, placeholder_indices[:len_to_replace]] = projected_img_embeds[:len_to_replace]
+                        final_combined_embeds[i, placeholder_indices[:len_to_replace]] = projected_img_embeds[
+                                                                                         :len_to_replace]
 
         return final_combined_embeds
+
+
+class CrossAttentionEncoderLayer(nn.Module):
+    def __init__(self, original_encoder_layer, with_cross_attention=True):
+        super().__init__()
+        self.with_cross_attention = with_cross_attention  # *** 2. 保存开关状态 ***
+        # 直接复用原始层中的模块，保证权重一致
+        self.embed_dim = original_encoder_layer.embed_dim
+        self.self_attn = original_encoder_layer.self_attn
+        self.self_attn_layer_norm = original_encoder_layer.self_attn_layer_norm
+        self.fc1 = original_encoder_layer.fc1
+        self.fc2 = original_encoder_layer.fc2
+        self.final_layer_norm = original_encoder_layer.final_layer_norm
+        self.activation_fn = original_encoder_layer.activation_fn
+        self.dropout = original_encoder_layer.dropout
+
+        # *** 新增的交叉注意力模块 ***
+        # 我们可以用一个和self_attn配置完全一样的MultiheadAttention层
+        self.cross_attn = nn.MultiheadAttention(
+            embed_dim=self.embed_dim,
+            num_heads=self.self_attn.num_heads,
+            dropout=self.self_attn.dropout,
+            batch_first=True  # 假设我们都用 batch_first
+        )
+        # 对应的LayerNorm
+        self.cross_attn_layer_norm = nn.LayerNorm(self.embed_dim)
+        self.gate = nn.Linear(768 * 2, 1)
+
+    def forward(
+            self,
+            hidden_states,  # (seq_len, batch_size, embed_dim) -> BART默认格式
+            attention_mask=None,
+            cross_modal_features=None,  # (batch_size, cross_seq_len, embed_dim)
+            output_attentions=False,
+    ):
+        # 我们的代码都假设 batch_first=False，按你的源码来
+        # hidden_states: T x B x C
+        # cross_modal_features: M x B x C (M是多模态序列长度)
+        # attention_mask: B x T
+        # cross_attention_mask: B x M
+
+        # 1. 自注意力 (Self-Attention)
+        residual = hidden_states
+        hidden_states, self_attn_weights = self.self_attn(
+            query=hidden_states,
+            key=hidden_states,
+            key_padding_mask=attention_mask,  # 注意 MultiheadAttention 的 mask 参数名
+            output_attentions=output_attentions
+        )
+        hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = residual + hidden_states
+        hidden_states = self.self_attn_layer_norm(hidden_states)
+
+        # 2. 交叉注意力 (Cross-Attention)
+        if cross_modal_features is not None and self.with_cross_attention:
+            residual = hidden_states
+            # 将多模态特征转置以匹配格式：M x B x C
+            cross_modal_features_t = cross_modal_features.transpose(0, 1)
+
+            # hidden_states (文本) 作为 Query
+            # cross_modal_features (图像/字幕) 作为 Key 和 Value
+            cross_attn_output, cross_attn_weights = self.cross_attn(
+                query=hidden_states,
+                key=cross_modal_features_t,
+                value=cross_modal_features_t,
+
+            )
+            hidden_states = F.dropout(cross_attn_output, p=self.dropout, training=self.training)
+
+            gate_score = torch.sigmoid(
+                self.gate(torch.cat([hidden_states, residual], dim=-1)))
+            hidden_states = gate_score * residual + (1 - gate_score) * hidden_states
+            hidden_states = self.cross_attn_layer_norm(hidden_states)
+
+        # 3. 前馈网络 (Feed-Forward Network)
+        residual = hidden_states
+        hidden_states = self.activation_fn(self.fc1(hidden_states))
+        hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = self.fc2(hidden_states)
+        hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = residual + hidden_states
+        hidden_states = self.final_layer_norm(hidden_states)
+
+        # 返回 hidden_states 和两种注意力权重
+        return hidden_states, (self_attn_weights, cross_attn_weights if cross_modal_features is not None and self.with_cross_attention else None)
 
 
 class MultiModalBartEncoder(nn.Module):
@@ -364,12 +455,12 @@ class MultiModalBartEncoder(nn.Module):
     """
 
     def __init__(self, config: MultiModalBartConfig, encoder, img_feat_id,
-                 cls_token_id, num_image_tokens, pad_token_id):
+                 cls_token_id, num_image_tokens, pad_token_id, freeze_bart):
         super().__init__()
 
-        self.img_feat_id = img_feat_id  # 图像特征标识符
-        self.cls_token_id = cls_token_id  # CLS标记
-        embed_tokens = encoder.embed_tokens  # 复用BART的词嵌入层
+        self.img_feat_id = img_feat_id
+        self.cls_token_id = cls_token_id
+        embed_tokens = encoder.embed_tokens
         self.dropout = encoder.dropout
         self.layerdrop = encoder.layerdrop
 
@@ -379,32 +470,59 @@ class MultiModalBartEncoder(nn.Module):
         self.embed_scale = encoder.embed_scale
         self.padding_idx = embed_tokens.padding_idx
         self.max_source_positions = encoder.max_source_positions
-        # 其余encoder的 部分包括BART原先的内容，并不做修改。
-        self.embed_tokens = embed_tokens
-        # 图像特征嵌入模块 至此得到了图像嵌入表示，能在BART形式的文本嵌入表示 这里只是经过线性层换成了BART需要的维度，但是他并没有经过BART的encoder处理
-        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name, num_image_tokens=num_image_tokens)
-        self.embed_positions = encoder.embed_positions
 
-        self.layers = encoder.layers
+        self.embed_tokens = embed_tokens
+        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name,
+                                           num_image_tokens=num_image_tokens)
+        self.embed_positions = encoder.embed_positions
+        # 源码的方式 早期融合
+        # self.layers = encoder.layers
+        # 修改变成混合融合模型 让encoder的每一层去与字幕信息融合
+        self.layers = nn.ModuleList()
+        self.fusion_start_layer = 4
+        for i in range(len(encoder.layers)):
+            # 判断当前层是否需要交叉注意力
+            do_cross_attention = (i >= self.fusion_start_layer)
+
+            print(f"Layer {i}: with_cross_attention = {do_cross_attention}")
+
+            # 创建层，并传入开关状态
+            layer = CrossAttentionEncoderLayer(
+                original_encoder_layer=encoder.layers[i],
+                with_cross_attention=do_cross_attention
+            )
+            self.layers.append(layer)
+        if freeze_bart:
+            for p in self.layers.parameters():
+                p.requires_grad = False
         self.layernorm_embedding = encoder.layernorm_embedding
         # mbart has one extra layer_norm
         self.layer_norm = encoder.layer_norm
-        # text_processor_num_sentiment_categories = 5  # 与tokenization_new_for_generated_prompt.py 定义了五种类型挂钩。
-        # # 使用新的情感感知多模态嵌入模块替换原有的 _embed_multi_modal 逻辑
-        # self.sentiment_aware_embedder = SentimentAwareMultiModalEmbedding(
-        #     config=config,  # MultiModalBartConfig 实例
-        #     bart_embed_tokens=embed_tokens,  # BART原始词嵌入层
-        #     img_feat_id=img_feat_id,
-        #     cls_token_id=cls_token_id,
-        #     pad_token_id=pad_token_id,
-        #     num_image_tokens=num_image_tokens,
-        #     text_processor_num_sentiment_categories=text_processor_num_sentiment_categories,
-        #     hidden_size=embed_dim  # 或 config.d_model
-        # )
+        # 相关度计算部分
+        self.text_caption_cross_attention = nn.MultiheadAttention(embed_dim=768, num_heads=4,
+                                                                  batch_first=True, dropout=0.2)
+        # self.text_caption_attn_output_projection = nn.Linear(self.config.hidden_size, 1)  # 示例：将池化后的输出投影到 1 维
+        self.text_caption_attn_output_projection = nn.Sequential(
+            nn.Linear(768 + 1, 256),
+            nn.LayerNorm(256),
+            nn.GELU(),
+            nn.Dropout(0.2),
+            nn.Linear(256, 1),
+        )
+        self.text_caption_attn_output_projection_cross = nn.Sequential(
+            nn.Linear(768, 256),
+            nn.LayerNorm(256),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(256, 768),
+        )
+        self.threshold = nn.Parameter(torch.tensor(0.7))
+        # self.threshold = torch.tensor(0.7)
+        self.temperature = nn.Parameter(torch.tensor(3.0))
+
 
     def _embed_multi_modal(self, input_ids, image_features):
         """embed textual and visual inputs and combine them into one embedding"""
-        # 将文本和图像都变成了嵌入，其中的图像表示会经过变换 变成lt*dt的形式 至此完成公式3 部分，但是CLIPCAP处理图像得到的文本好像没找到在哪里
         mask = (input_ids == self.img_feat_id) | (
                 input_ids == self.cls_token_id)
         # print(mask.shape)
@@ -413,7 +531,7 @@ class MultiModalBartEncoder(nn.Module):
         # print('mask shape', mask.shape)
         if not embedded_images[0].dtype == torch.float32:
             embedded = embedded.half()
-        # 让每一个batch中样本的图像放到对应的位置上
+
         for index, value in enumerate(embedded_images):
             if len(value) > 0:
                 embedded[index, mask[index]] = value
@@ -426,7 +544,11 @@ class MultiModalBartEncoder(nn.Module):
                 attention_mask=None,
                 output_attentions=False,
                 output_hidden_states=False,
+                caption_mask=None,
                 sentence_mask=None,
+                image_mask=None,
+                image_valid=None,
+                score=None,
                 return_dict=False):
         """
 
@@ -435,7 +557,6 @@ class MultiModalBartEncoder(nn.Module):
         :param attention_mask: LongTensor, indicating which indices are padding tokens.
         :param output_attentions:
         :param output_hidden_states:
-        precomputed_sentiment_category_ids:
         :return: Tuple comprised of:
             - x (Tensor): the last encoder layer's output of
               shape (src_len, batch, embed_dim)
@@ -445,24 +566,166 @@ class MultiModalBartEncoder(nn.Module):
             - all_attentions (List[Tensor]): Attention weights for each layer.
             During training might not be of length n_layers because of layer dropout.
         """
-        # check attention mask and invert  这里只保留了用于 情绪和Aspect术语的Prompt部分，
+
+        # check attention mask and invert
         if attention_mask is not None:
             attention_mask = invert_mask(attention_mask)
 
         inputs_embeds = self._embed_multi_modal(
             input_ids, image_features) * self.embed_scale
-
-        # inputs_embeds = self.sentiment_aware_embedder(
-        #     input_ids,
-        #     image_features,
-        #     precomputed_sentiment_category_ids,
-        #     sentence_mask
-        # ) * self.embed_scale # 不要忘记乘以 embed_scale
-        # 至此的信息是让图像表示经过转换后得到BART的维度之后， 在经过BART其中的Encoder
         embed_pos = self.embed_positions(input_ids)
-        x = inputs_embeds + embed_pos  # 残差的连接是一个位置编码
+        x = inputs_embeds + embed_pos
         x = self.layernorm_embedding(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
+        # 字幕信息和字幕mask
+        original_caption_mask = caption_mask
+        caption_mask = caption_mask.unsqueeze(-1).to(attention_mask.device)
+        # print("input_ids", x.size(), caption_mask.size())
+        caption = x * caption_mask.float().to(attention_mask.device)
+        image_mask = image_mask.unsqueeze(-1).to(attention_mask.device)
+        image = x * image_mask.float().to(attention_mask.device)
+        # 相关度计算部分
+        original_sentence_mask = sentence_mask
+        sentence_mask = sentence_mask.unsqueeze(-1).to(attention_mask.device)
+        text = x * sentence_mask.float().to(attention_mask.device)
+        loss_crd = torch.tensor(0.0, dtype=torch.float)
+        batch_size = x.size(0)
+        valid_indices = torch.where(image_valid)[0]
+
+        num_valid = len(valid_indices)
+        crd_logits_all = torch.zeros(batch_size, 1, device=attention_mask.device)  # 默认logit为0，对应sigmoid(0)=0.5
+
+        # relevance_scores_all = torch.full((batch_size, 1), 0.5, device=attention_mask.device)  # 默认得分0.5 (或根据你的策略设为0.0或1.0)
+        relevance_scores_all = score.unsqueeze(-1).to(attention_mask.device)  # 对于没有字幕就用预训练模型给出的参数
+        # relevance_scores_all = score.unsqueeze(-1).unsqueeze(-1).to(attention_mask.device)
+        # relevance_scores_all = relevance_scores_all.repeat(1, caption.size(1), caption.size(2)).to(attention_mask.device)
+        if num_valid > 0:
+            # 2. 提取有效样本的数据
+            valid_text_emb = text[valid_indices].to(attention_mask.device)  # [num_valid, seq_len_text, hidden_size]
+            valid_caption_emb = caption[valid_indices].to(
+                attention_mask.device)  # [num_valid, max_len, hidden_size]
+            valid_text_mask = original_sentence_mask[valid_indices].to(attention_mask.device)  # [num_valid, max_len]
+            # **关键: MultiheadAttention 的 key_padding_mask 需要 True 表示 Padding 位置**
+            # 假设你的 mask 是 1 表示有效, 0 表示 padding, 需要转换
+            valid_caption_padding_mask = (
+                    original_caption_mask[valid_indices] == 0).to(
+                attention_mask.device)  # [num_valid, max_len], True for padding
+
+            # 3. 批处理交叉注意力 (假设 batch_first=True)
+            # query: text, key/value: caption
+            # attn_output_valid, attn_weights = self.text_caption_cross_attention(
+            #     query=valid_text_emb,
+            #     key=valid_caption_emb,
+            #     value=valid_caption_emb,
+            #     key_padding_mask=valid_caption_padding_mask  # ****** 提供正确的 Mask ******
+            # )  # Output: [num_valid, max_len, hidden_size]
+            # 只使用交叉注意力的部分
+            attn_output_valid, attn_weights = self.text_caption_cross_attention(
+                query=valid_caption_emb,
+                key=valid_text_emb,
+                value=valid_text_emb,
+                key_padding_mask=valid_text_mask
+                # ****** 提供正确的 Mask ******
+            )
+            # logits_valid = self.text_caption_attn_output_projection_cross(attn_output_valid)
+            # 提取最高的几个注意力权重，表示最相关的部分
+            top_k_weights, _ = torch.topk(attn_weights, k=min(5, attn_weights.size(-1)), dim=-1)
+            attention_focus = top_k_weights.mean(dim=-1).mean(dim=-1).unsqueeze(1)  # [num_valid, 1]
+
+            # 4. 批处理屏蔽平均池化
+            # 将 padding 位置的 attention output 置零 text 部分的
+            # attn_output_valid_masked = attn_output_valid * valid_text_mask.unsqueeze(-1).float().to(
+            #     attention_mask.device)
+            # # 计算每个样本的有效长度
+            # text_lengths_valid = valid_text_mask.sum(dim=1, keepdim=True).float().to(
+            #     attention_mask.device)  # [num_valid, 1]
+            # # 对有效位置求和
+            # sum_attn_output_valid = attn_output_valid_masked.sum(dim=1).to(
+            #     attention_mask.device)  # [num_valid, hidden_size]
+            # # 计算平均值，防止除零
+            # mean_attn_output_valid = sum_attn_output_valid / torch.clamp(text_lengths_valid,
+            #                                                              min=1e-9)  # [num_valid, hidden_size]
+
+            # 4. 批处理屏蔽平均池化
+            # 将 padding 位置的 attention output 置零
+            attn_output_valid_masked = attn_output_valid * valid_caption_padding_mask.unsqueeze(-1).float().to(
+                attention_mask.device)
+            # 计算每个样本的有效长度
+            text_lengths_valid = valid_caption_padding_mask.sum(dim=1, keepdim=True).float().to(
+                attention_mask.device)  # [num_valid, 1]
+            # 对有效位置求和
+            sum_attn_output_valid = attn_output_valid_masked.sum(dim=1).to(
+                attention_mask.device)  # [num_valid, hidden_size]
+            # 计算平均值，防止除零
+            mean_attn_output_valid = sum_attn_output_valid / torch.clamp(text_lengths_valid,
+                                                                         min=1e-9)  # [num_valid, hidden_size]
+
+            # 计算文本和图像表示的余弦相似度
+            text_pooled = valid_text_emb.sum(dim=1) / torch.clamp(valid_text_mask.sum(dim=1, keepdim=True), min=1e-9)
+            caption_pooled = valid_caption_emb.sum(dim=1) / torch.clamp(
+                (~valid_caption_padding_mask).sum(dim=1, keepdim=True), min=1e-9)
+            cosine_sim = F.cosine_similarity(text_pooled, caption_pooled, dim=1, eps=1e-8).unsqueeze(
+                1)  # [num_valid, 1]
+
+            # 5. 多特征融合
+            # 将注意力焦点和余弦相似度与平均表示拼接
+            combined_features = torch.cat([
+                mean_attn_output_valid,  # 交叉注意力特征
+                cosine_sim,  # 余弦相似度特征
+            ], dim=1)
+            # 5. 批处理线性投影，得到 Logits
+            logits_valid = self.text_caption_attn_output_projection(combined_features)  # [num_valid, 1]
+
+            # 6. 计算有效样本的相关性得分 (用于门控)
+            scores_valid = torch.sigmoid(logits_valid).to(attention_mask.device)  # [num_valid, 1]
+
+            # 7. 计算 CRD 损失 (仅针对有效样本) 用于得到一个门控
+            target_labels_valid = score[valid_indices].unsqueeze(1).to(attention_mask.device)  # [num_valid, 1]
+            # 7. 计算 CRD 损失 (仅针对有效样本) 只包含交叉注意力
+            # target_labels_valid = score[valid_indices].unsqueeze(1).unsqueeze(-1).to(attention_mask.device)  # [num_valid, 1]
+            # # print("weidu", logits_valid.size(), target_labels_valid.size())
+            # target_labels_valid = target_labels_valid.repeat(1, logits_valid.size(1), logits_valid.size(2)).to(attention_mask.device)
+            # print("weidu", logits_valid.size(), target_labels_valid.size())
+            # 再转为硬标签
+            # hard_labels = (target_labels_valid > self.threshold).float()
+            #
+            # criterion_crd = nn.BCELoss()
+            # loss_crd_hard = criterion_crd(scores_valid, hard_labels)
+            # 就正常的使用软标签
+            loss_crd_soft = F.binary_cross_entropy(scores_valid, target_labels_valid)  # 无需阈值处理
+            # loss_crd = 0.6 * loss_crd_soft + 0.4 * loss_crd_hard
+            loss_crd = loss_crd_soft
+            # 8. 更新完整批次的 logits 和 scores
+            # 使用 scatter_ 或 index_put_ 更新特定索引的值
+            # crd_logits_all[valid_indices] = logits_valid
+            relevance_scores_all[valid_indices] = scores_valid
+
+        threshold = torch.sigmoid(self.threshold)
+        temperature = torch.abs(self.temperature) + 1.0  # 确保温度参数为正
+
+        # 平滑阈值处理
+        adjusted_scores = torch.sigmoid((relevance_scores_all - threshold) * temperature)
+
+        # 硬阈值+软权重结合
+        hard_mask = (relevance_scores_all > adjusted_scores).bool()
+        gating_scores = relevance_scores_all * hard_mask
+        # gating_scores = relevance_scores_all
+        # 门控形式需要多一维
+        gating_scores = gating_scores.unsqueeze(1).to(attention_mask.device)
+        caption = caption * gating_scores
+
+        # 把iuput_id里面的对应数据也改了
+        image = image * gating_scores
+        mask_image_mask = image_mask.repeat(1, 1, x.size(-1)).to(attention_mask.device)
+        x = x.masked_scatter(
+            mask_image_mask,
+            image[mask_image_mask]
+        )
+        caption_mask_1 = caption_mask.repeat(1, 1, x.size(-1)).to(attention_mask.device)
+        x = x.masked_scatter(
+            caption_mask_1,
+            caption[caption_mask_1]
+        )
 
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
@@ -477,10 +740,15 @@ class MultiModalBartEncoder(nn.Module):
                                   self.layerdrop):  # skip the layer
                 attn = None
             else:
-                x, attn = encoder_layer(x,
-                                        attention_mask,
-                                        output_attentions=output_attentions)
-
+                # x, attn = encoder_layer(x,
+                #                         attention_mask,
+                #                         output_attentions=output_attentions)
+                x, attn = encoder_layer(
+                    x,
+                    attention_mask=attention_mask,
+                    cross_modal_features=caption,  # 需要从外部传入
+                    output_attentions=output_attentions
+                )
             if output_attentions:
                 all_attentions.append(attn)
 
@@ -498,12 +766,11 @@ class MultiModalBartEncoder(nn.Module):
         if not return_dict:
             return tuple(v for v in [x, encoder_states, all_attentions]
                          if v is not None)
-        # 后续的输出就包含了Encoder的每一层的状态以及最终层输出，那很完美，就是我们需要的信息。
         return BaseModelOutput(
             last_hidden_state=x.float(),
             hidden_states=tuple([hs.float() for hs in encoder_states]) if encoder_states else None,
             attentions=tuple([attn.float() for attn in all_attentions]) if all_attentions else None
-        )
+        ), loss_crd, gating_scores, hard_mask
 
 
 class MultiModalBartEncoder_for_Generating_aspect_prompt(nn.Module):
@@ -540,7 +807,8 @@ class MultiModalBartEncoder_for_Generating_aspect_prompt(nn.Module):
         self.max_source_positions = encoder.max_source_positions
 
         self.embed_tokens = embed_tokens
-        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name, num_image_tokens=num_image_tokens)
+        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name,
+                                           num_image_tokens=num_image_tokens)
         self.embed_positions = encoder.embed_positions
 
         self.layers = encoder.layers
@@ -684,7 +952,7 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
     def __init__(self, use_generated_prompt,
                  config: MultiModalBartConfig, encoder, img_feat_id, aspect_prompt_token_id, senti_prompt_token_id,
                  cls_token_id, num_image_tokens, use_different_senti_prompt, prompt_pool_num,
-                 diversity_loss_weight, l2_reg_weight):
+                 diversity_loss_weight, l2_reg_weight, is_few_shot):
         super().__init__()
         # 前三个是特殊标记
         self.use_generated_prompt = use_generated_prompt
@@ -707,21 +975,22 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
 
         self.embed_tokens = embed_tokens
         # 图像编码表示 -> 文本表示的结果
-        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name, num_image_tokens=num_image_tokens)
+        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name,
+                                           num_image_tokens=num_image_tokens)
         self.embed_positions = encoder.embed_positions
 
         self.layers = encoder.layers
         self.layernorm_embedding = encoder.layernorm_embedding
         # mbart has one extra layer_norm
         self.layer_norm = encoder.layer_norm
-
+        self.is_few_shot = is_few_shot
         self.aspect_linear = nn.Linear(768, 768)
         self.aspect_relu = nn.LeakyReLU()
         self.aspect_MLP = nn.Sequential(
             nn.Linear(768, 768),
             nn.LayerNorm(768),
             nn.LeakyReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.2),
             nn.Linear(768, 768),
             # nn.LayerNorm(768),
             # nn.GELU(),
@@ -731,37 +1000,54 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
         # 1、情绪Prompt池部分。这个维度保持与768一致
         self.prompt_pool = nn.Parameter(torch.randn(prompt_pool_num, 768))  # 假设最大5个aspect
         # 2、用于修正Prompt的转换器MLP
-        self.text_mlp = nn.Sequential(
-            nn.Linear(768, 768),
-            nn.GELU(),
-            nn.LayerNorm(768),
-            nn.Dropout(0.2),
-            nn.Linear(768, 768)
-        )
-        # 用于将Prompt也转换的MLP
-        self.prompt_mlp = nn.Sequential(
-            nn.Linear(768, 768),
-            nn.GELU(),
-            nn.LayerNorm(768),
-            nn.Dropout(0.2),
-            nn.Linear(768, 768)
-        )
+        # self.text_mlp = nn.Sequential(
+        #     nn.Linear(768, 768),
+        #     nn.GELU(),
+        #     nn.LayerNorm(768),
+        #     nn.Dropout(0.2),
+        #     nn.Linear(768, 768)
+        # )
+        # # 用于将Prompt也转换的MLP
+        # self.prompt_mlp = nn.Sequential(
+        #     nn.Linear(768, 768),
+        #     nn.GELU(),
+        #     nn.LayerNorm(768),
+        #     nn.Dropout(0.2),
+        #     nn.Linear(768, 768)
+        # )
         # 注意力的头数也是一个可以修改的指标
-        self.attention = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.2)  # 4头注意力
-        self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
-        # 方法3的权重计算方法的权重矩阵。
-        self.learnable_weight_matrix = nn.Parameter(torch.randn(768, 768))  # 假设特征维度是 768
+        # 6.1 4 8 6 -> 6 6 6 0.2 -> 0.3 -> 2 2
+        if not is_few_shot:
+            self.attention = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.1)  # 4头注意力
+            self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
+            # 方法3的权重计算方法的权重矩阵。
+            self.learnable_weight_matrix = nn.Parameter(torch.randn(768, 768))  # 假设特征维度是 768
 
-        # 计算损失函数的权重
-        self.diversity_loss_weight = diversity_loss_weight
-        self.l2_reg_weight = l2_reg_weight
-        self.final_LayerNorm = nn.LayerNorm(768)
-        # 接下来是关于图像嵌入与文本嵌入的部分：
-        self.image_cross_attention = nn.MultiheadAttention(768, 8, batch_first=True, dropout=0.2)  # 4头注意力
-        self.gate_proj_image = nn.Linear(768 * 2, 1)
-        self.prompt_attention = nn.MultiheadAttention(768, 6, batch_first=True, dropout=0.2)
-        self.prompt_proj_image = nn.Linear(768 * 2, 1)
+            # 计算损失函数的权重
+            self.diversity_loss_weight = diversity_loss_weight
+            self.l2_reg_weight = l2_reg_weight
+            self.final_LayerNorm = nn.LayerNorm(768)
+            # 接下来是关于图像嵌入与文本嵌入的部分：
+            self.image_cross_attention = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.1)  # 4头注意力
+            self.gate_proj_image = nn.Linear(768 * 2, 1)
+            self.prompt_attention = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.1)
+            self.prompt_proj_image = nn.Linear(768 * 2, 1)
+        else:
+            # 0.2->0.4 不好 ->0.1
+            self.attention = nn.MultiheadAttention(768, 2, batch_first=True, dropout=0.2)  # 4头注意力
+            self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
+            # 方法3的权重计算方法的权重矩阵。
+            self.learnable_weight_matrix = nn.Parameter(torch.randn(768, 768))  # 假设特征维度是 768
 
+            # 计算损失函数的权重
+            self.diversity_loss_weight = diversity_loss_weight
+            self.l2_reg_weight = l2_reg_weight
+            self.final_LayerNorm = nn.LayerNorm(768)
+            # 接下来是关于图像嵌入与文本嵌入的部分：
+            self.image_cross_attention = nn.MultiheadAttention(768, 6, batch_first=True, dropout=0.2)  # 4头注意力
+            self.gate_proj_image = nn.Linear(768 * 2, 1)
+            self.prompt_attention = nn.MultiheadAttention(768, 2, batch_first=True, dropout=0.2)
+            self.prompt_proj_image = nn.Linear(768 * 2, 1)
 
     def _embed_multi_modal(self, generated_senti_prompt, aspects_num, input_ids, image_features,
                            sentence_mask, image_mask, encoder_outputs, image_caption_valid, image_caption_mask):
@@ -796,6 +1082,7 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
                     image_caption_mask_tmp = image_caption_mask[index]
                     # prompt_embedding_ = generated_prompt[index].repeat(aspect_num, 1)
                     prompt_embedding_list = []
+                    encoder_outputs_tmp_attn = encoder_outputs_tmp.unsqueeze(0).to(input_ids.device)
                     # 遍历一个样本中的方面个数
                     for j in range(aspect_num):
                         # 为每一个生成的情绪Prompt做一个线性变换 借助图像表示编码解码后的结果，得到情绪相关的embedding的结果
@@ -829,9 +1116,9 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
                         caption = encoder_outputs_tmp * caption_mask_expand.float()
                         caption = caption.unsqueeze(0)
                         sample_caption_embedding = caption * image_caption_valid_expand + image_embeddings_caption * (
-                                    1 - image_caption_valid_expand)
+                                1 - image_caption_valid_expand)
                         sample_caption_mask = caption_mask_expand * image_caption_valid_expand + image_mask_expanded_for_image_caption * (
-                                    1 - image_caption_valid_expand)
+                                1 - image_caption_valid_expand)
                         sample_caption_embedding = sample_caption_embedding.to(input_ids.device)
                         sample_caption_mask = sample_caption_mask.to(input_ids.device)
                         sample_caption_mask = ~sample_caption_mask.squeeze(-1).bool()
@@ -842,24 +1129,34 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
                         # print("text 维度", text_emb.size())
                         senti_features = prompt_embedding.unsqueeze(0)
                         # 注意力计算 [s,b,768]
-                        # print("维度", senti_features.size(), text_embeddings.size())
+                        # print("维度", senti_features.size(), text_embeddings.size())\
+                        context_only_mask_hf = image_mask_tmp + image_caption_mask_tmp + sentence_mask_tmp
+                        context_only_mask_hf = context_only_mask_hf.unsqueeze(0).to(input_ids.device)
+                        cross_attention_key_padding_mask = (context_only_mask_hf == 0)
+                        # attn_output, _ = self.attention(
+                        #     query=senti_features,
+                        #     key=text_embeddings,
+                        #     value=text_embeddings,
+                        #     key_padding_mask=None
+                        # )
+                        # 直接一步到位
+
+                        # print("ww", senti_features.size(), encoder_outputs_tmp_attn.size(), cross_attention_key_padding_mask.size())
                         attn_output, _ = self.attention(
                             query=senti_features,
-                            key=text_embeddings,
-                            value=text_embeddings,
-                            key_padding_mask=None
+                            key=encoder_outputs_tmp_attn,  # Shape: (SeqLen, Batch, Dim)
+                            value=encoder_outputs_tmp_attn,
+                            key_padding_mask=cross_attention_key_padding_mask  # Shape: (Batch, SeqLen)
                         )
 
-
                         gate = torch.sigmoid(self.gate_proj(torch.cat([senti_features, attn_output], dim=-1)))
-
                         # 方式1： 直接将门控机制运用在原始和Prompt上
                         # final_features = gate * text_embeddings + (1 - gate) * enhanced_text
                         # 方式2: 在运用门控机制的同时，把原始信息放在两个部分，尽可能保证原始信息居多，不会被Prompt过多干扰。
 
-                        final_features = gate * senti_features + (1 - gate) * (
-                                senti_features + attn_output)  # 门控加法，注意这里是 text_embeddings + enhanced_text 的加法结果参与门控
+                        final_features = gate * senti_features + (1 - gate) * (attn_output)  # 门控加法，注意这里是 text_embeddings + enhanced_text 的加法结果参与门控
 
+                        # final_features = senti_features + attn_output
                         # 调整一下需不需要保证原始信息居多的情况
                         # final_features = gate * senti_features + (1 - gate) * (attn_output)
                         # final_features = final_features.to(input_ids.device)
@@ -876,34 +1173,40 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
                         #     key_padding_mask=None  # 图像部分是否需要 padding mask？ 根据实际情况添加
                         # )  # image_cross_attn_output: [s, b, 768]  图像交叉注意力输出
                         # print("ww", sample_caption_embedding.size(), sample_caption_mask.size())
-                        image_cross_attn_output, _ = self.image_cross_attention(  # 图像交叉注意力计算
-                            query=final_features,  # Query: Prompt 增强后的文本表示
-                            key=sample_caption_embedding,  # Key: 图像嵌入
-                            value=sample_caption_embedding,  # Value: 图像嵌入
-                            key_padding_mask=sample_caption_mask  # 图像部分是否需要 padding mask？ 根据实际情况添加
-                        )  # image_cross_attn_output: [s, b, 768]  图像交叉注意力输出
+                        # 其他模态的融合
+                        # ------------
+                        # image_cross_attn_output, _ = self.image_cross_attention(  # 图像交叉注意力计算
+                        #     query=final_features,  # Query: Prompt 增强后的文本表示
+                        #     key=sample_caption_embedding,  # Key: 图像嵌入
+                        #     value=sample_caption_embedding,  # Value: 图像嵌入
+                        #     key_padding_mask=sample_caption_mask  # 图像部分是否需要 padding mask？ 根据实际情况添加
+                        # )  # image_cross_attn_output: [s, b, 768]  图像交叉注意力输出
+                        #
+                        # image_cross_attn_output_result = image_cross_attn_output.permute(1, 0, 2)
+                        #
+                        # gate_image = torch.sigmoid(
+                        #     self.gate_proj_image(torch.cat([final_features, image_cross_attn_output_result],
+                        #                                    dim=-1)))
+                        # # 把融合的特征也放入其中。
+                        # final_features = gate_image * final_features + (1 - gate_image) * (
+                        #         final_features + image_cross_attn_output_result)
 
-                        image_cross_attn_output_result = image_cross_attn_output.permute(1, 0, 2)
-                        gate_image = torch.sigmoid(
-                            self.gate_proj_image(torch.cat([final_features, image_cross_attn_output_result],
-                                                           dim=-1)))
-                        # 把融合的特征也放入其中。
-                        final_features = gate_image * final_features + (1 - gate_image) * (
-                                    final_features + image_cross_attn_output_result)
+                        # final_features = final_features + image_cross_attn_output_result
+                        # -------------
                         # 调整一下需不需要保证原始信息居多的情况
                         # final_features = gate_image * final_features + (1 - gate_image) * (
                         #         image_cross_attn_output_result)
 
                         # # MLP处理 ------------------------------------------------------
-                        Prompt = self.prompt_pool.unsqueeze(0)  # [1, num, 768]
-                        prompt_attn, _ = self.prompt_attention(
-                            query=final_features,
-                            key=Prompt,
-                            value=Prompt,
-                            key_padding_mask=None
-                        )
-                        gate_prompt = torch.sigmoid(self.prompt_proj_image(torch.cat([final_features, prompt_attn], dim=-1)))
-                        final_features = gate_prompt * final_features + (1 - gate_prompt) * (prompt_attn + final_features)
+                        # Prompt = self.prompt_pool.unsqueeze(0)  # [1, num, 768]
+                        # prompt_attn, _ = self.prompt_attention(
+                        #     query=final_features,
+                        #     key=Prompt,
+                        #     value=Prompt,
+                        #     key_padding_mask=None
+                        # )
+                        # gate_prompt = torch.sigmoid(self.prompt_proj_image(torch.cat([final_features, prompt_attn], dim=-1)))
+                        # final_features = gate_prompt * final_features + (1 - gate_prompt) * (prompt_attn + final_features)
 
                         # mlp_output = self.prompt_mlp(attn_output.permute(1, 0, 2)).to(
                         #     input_ids.device)  # [b,s,768]
@@ -978,7 +1281,8 @@ class MultiModalBartEncoder_for_Generating_sentiment_prompt(nn.Module):
 
         inputs_embeds = self._embed_multi_modal(generated_prompt, aspects_num,
                                                 input_ids, image_features, sentence_mask, image_mask,
-                                                encoder_outputs, image_caption_valid, image_caption_mask) * self.embed_scale
+                                                encoder_outputs, image_caption_valid,
+                                                image_caption_mask) * self.embed_scale
         # 这里的处理逻辑一样 前面的处理只是让SPD情绪处理和图像表示的的内容经过Embedding得到隐藏层状态， 后续还需要经过BART的Encoder
         embed_pos = self.embed_positions(input_ids)
         x = inputs_embeds + embed_pos
@@ -1138,7 +1442,8 @@ class MultiModalBartEncoder_for_Generating_Dual_prompts(nn.Module):
         self.max_source_positions = encoder.max_source_positions
 
         self.embed_tokens = embed_tokens
-        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name, num_image_tokens=num_image_tokens)
+        self.embed_images = ImageEmbedding(embed_dim, embed_dim, image_encoder_type, image_model_name,
+                                           num_image_tokens=num_image_tokens)
         self.embed_positions = encoder.embed_positions
 
         self.layers = encoder.layers
@@ -1402,7 +1707,6 @@ class MultiModalBartDecoder_span(nn.Module
             tokens = tokens[:, :-1]
             decoder_pad_mask = tokens.eq(
                 self.pad_token_id)  # decoder需要让pad位置为1
-
             dict = self.decoder(input_ids=tokens,
                                 encoder_hidden_states=encoder_outputs,
                                 encoder_padding_mask=encoder_pad_mask,
@@ -1411,7 +1715,6 @@ class MultiModalBartDecoder_span(nn.Module
                                 causal_masks[:tokens.size(1), :tokens.size(1)],
                                 return_dict=True)
         else:
-
             past_key_values = state.past_key_values
             dict = self.decoder(input_ids=tokens,
                                 encoder_hidden_states=encoder_outputs,
@@ -1425,6 +1728,9 @@ class MultiModalBartDecoder_span(nn.Module
         hidden_state = self.dropout_layer(hidden_state)
         if not self.training:
             state.past_key_values = dict.past_key_values
+
+        # myf: 从此处开始的代码就是源码中为了生成标准三元组构建的内容了，为标准的指针网络，但是对于MASC这个任务来说，复杂的生成任务反而不太好
+        # 所以我们单独使用一个分类器任务，与Aspect_num的构建使用同样的方式， 故我们同样将dict这个decoder结果返回到各个MAESC代码中使用
 
         logits = hidden_state.new_full(
             (hidden_state.size(0), hidden_state.size(1),
@@ -1493,27 +1799,188 @@ class MultiModalBartDecoder_span(nn.Module
             ###logits.shape (bts, max_len, max_word_len+6): (2, 12, 40)
             logits[:, :, 1:2] = eos_scores
         # print(torch.argmax(logits[0], dim=-1))
-        return logits
+        return hidden_state, logits
 
     def decode(self, tokens, state, only_sc=False):
-        return self(tokens, state, only_sc)[:, -1]
+        # print("输出", self(tokens, state, only_sc)[0], self(tokens, state, only_sc)[1])
+        return self(tokens, state, only_sc)[1][:, -1]
 
 
 class Span_loss(nn.Module):
-    def __init__(self):
+    def __init__(self, args):
         super().__init__()
         # self.loss_fct = nn.CrossEntropyLoss()
         self.fc = nn.LogSoftmax(dim=-1)
+        # 增加情感权重
+        self.emotion_ids = [3, 4, 5]  # 默认为空（不特殊处理）
+        if not args.is_classifier:
+            if args.dataset[0][0] == 'twitter15':
+                self.class_weights = [1.6, 1.0, 3.0]  # 积极 中性 消极
+            else:
+                self.class_weights = [1.0, 1.0, 1.3]
+            # if args.dataset[0][0] == 'twitter15':
+            #     self.class_weights = [1.7, 0.8, 2.0]  # 积极 中性 消极
+            # else:
+            #     self.class_weights = [1.5, 1.0, 1.7]
+        # 如果采用生成任务的话，整个损失都需要变成0, 放弃模型使用生成的部分
+        else:
+            if args.dataset[0][0] == 'twitter15':
+                self.class_weights = [0.0, 0.0, 0.0]  # 积极 中性 消极
+            else:
+                self.class_weights = [0.0, 0.0, 0.0]
+        self.default_other_token_weight = 1
+        self.default_other_token_weight_emotion = 0
+        self.pad_token_id = 1
+        self.focal_loss = FocalLoss()
+        # 确保 emotion_ids 和 emotion_class_weights 长度一致 36 78 22 twitter15 45 77 20
+        if len(self.emotion_ids) != len(self.class_weights):
+            raise ValueError("emotion_ids and emotion_class_weights must have the same length.")
+
+        # 创建一个从情感ID到其特定权重的映射，方便查找
+        self.emotion_id_to_weight_map = {
+            eid: weight_val
+            for eid, weight_val in zip(self.emotion_ids, self.class_weights)
+        }
 
     def forward(self, tgt_tokens, pred, mask):
         '''
         tgt_tokens: (2 (batch-size), 12 (max_len+1))
         pred: (2, 12, 40 (max_word_len))
         '''
+        # 1. 获取当前批次/样本的实际 vocab_size
+        current_vocab_size = pred.size(-1)  # 例如，您提到的 40
+
+        # 2. 动态构建当前批次的类别权重张量
+        # 初始化所有 token 的权重为 default_other_token_weight
+        current_class_weights = torch.full(
+            (current_vocab_size,),
+            self.default_other_token_weight,
+            dtype=pred.dtype,  # 与 pred 的 dtype 一致
+            device=pred.device  # 与 pred 的 device 一致
+        )
+        current_class_weights_emotion = torch.full(
+            (current_vocab_size,),
+            self.default_other_token_weight_emotion,
+            dtype=pred.dtype,  # 与 pred 的 dtype 一致
+            device=pred.device  # 与 pred 的 device 一致
+        )
+
+        # 为特定的情感 ID 设置其权重
+        for eid, specific_weight in self.emotion_id_to_weight_map.items():
+            if 0 <= eid < current_vocab_size:  # 确保情感ID在当前词汇表范围内
+                current_class_weights[eid] = specific_weight
+                current_class_weights_emotion[eid] = specific_weight
+            # else:
+            # 如果某个预定义的情感ID超出了当前动态词汇表的范围，
+            # 它的权重将保持为 default_other_token_weight (或者您可以选择报错或跳过)
+            # print(f"Warning: Emotion ID {eid} is out of current_vocab_size ({current_vocab_size}).")
+
+        # 3. 准备 target_labels (将 padding 替换为 ignore_index)
+        target_labels = tgt_tokens.clone()
 
         tgt_tokens = tgt_tokens.masked_fill(mask.eq(0), -100)
-        output = F.cross_entropy(target=tgt_tokens, input=pred.transpose(1, 2))  ##每一个词都有12种类别， input= (40, 12)
-        return output
+
+        # 4. 计算加权交叉熵损失
+        output = F.cross_entropy(
+            input=pred.transpose(1, 2),  # (batch, current_vocab_size, seq_len)
+            target=tgt_tokens,  # (batch, seq_len)
+            weight=current_class_weights,  # **使用动态构建的权重**
+            ignore_index=-100,
+            reduction='mean',
+        )
+        per_token_loss = F.cross_entropy(
+            input=pred.transpose(1, 2),
+            target=tgt_tokens,
+            weight=current_class_weights_emotion,
+            ignore_index=-100,
+            reduction='none'
+        )
+        # 用Focal Loss
+        # output = self.focal_loss(
+        #     pred.transpose(1, 2),  # (batch, current_vocab_size, seq_len)
+        #     tgt_tokens,  # (batch, seq_len)
+        #     current_class_weights,  # **使用动态构建的权重**
+        # )
+        return output, per_token_loss
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2.0, reduction='mean', ignore_index=-100):
+        super(FocalLoss, self).__init__()
+        # alpha 可以是一个 float (所有类别共享) 或一个 Tensor (每个类别一个)
+        # 如果 alpha 是 Tensor，其长度应为 vocab_size，并且在情感标签 ID 处设置特定权重
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+        self.ignore_index = ignore_index
+
+    def forward(self, logits, targets, alpha):
+        # logits: (B, C, L) or (B*L, C) - C 是类别数 (output_vocab_size)
+        # targets: (B, L) or (B*L)
+        self.alpha = alpha
+
+        # 打印输入形状和 targets 的值范围，以便调试
+        print(f"FocalLoss - logits shape: {logits.shape}")  # 应该是 (N, C)
+        print(f"FocalLoss - targets shape: {targets.shape}")  # 应该是 (N)
+        if targets.numel() > 0:  # 只有当 targets 非空时才计算 min/max
+            print(f"FocalLoss - targets min: {targets.min()}, targets max: {targets.max()}")
+            print(f"FocalLoss - num_classes (C from logits): {logits.size(1)}")
+
+        # 检查 targets 是否越界 (在替换 ignore_index 之前)
+        num_classes = logits.size(1)
+        if targets.numel() > 0 and ((targets[targets != self.ignore_index].min() < 0) or \
+                                    (targets[targets != self.ignore_index].max() >= num_classes)):
+            print("!!! ERROR in FocalLoss: Targets (excluding ignore_index) are out of bounds !!!")
+            problematic_targets_original = targets[
+                (targets != self.ignore_index) & ((targets < 0) | (targets >= num_classes))]
+            print(f"Problematic original target values: {problematic_targets_original}")
+
+        # 计算 log_softmax 以获得 log_probs
+        log_probs = F.log_softmax(logits, dim=1)  # 在类别维度上
+
+        # 收集真实标签对应的 log_probs
+        # targets 需要是 LongTensor
+        # targets.unsqueeze(1) -> (B*L, 1) if targets is (B*L)
+        # log_probs_for_targets = log_probs.gather(dim=1, index=targets.unsqueeze(1)).squeeze(1)
+
+        # 为了处理 ignore_index，我们先不 squeeze，并创建 mask
+        gathered_log_probs = log_probs.gather(dim=1, index=targets.unsqueeze(1))  # (B*L, 1)
+
+        # 创建有效标签的 mask
+        valid_mask = (targets != self.ignore_index)  # (B*L)
+
+        # 应用 mask，只计算有效标签的损失
+        gathered_log_probs = gathered_log_probs[valid_mask]  # (Num_Valid_Tokens, 1)
+        targets_valid = targets[valid_mask]  # (Num_Valid_Tokens)
+
+        if gathered_log_probs.numel() == 0:  # 如果没有有效标签
+            return torch.tensor(0.0, device=logits.device, requires_grad=True)
+
+        probs_for_targets = torch.exp(gathered_log_probs.squeeze(1))  # (Num_Valid_Tokens)
+
+        # 计算 Focal Loss 项
+        focal_term = (1 - probs_for_targets) ** self.gamma
+
+        # 应用 alpha 权重 (如果提供)
+        if self.alpha is not None:
+            if isinstance(self.alpha, (float, int)):
+                alpha_factor = self.alpha
+            elif isinstance(self.alpha, torch.Tensor):
+                # 从 alpha tensor 中选择对应类别的权重
+                # targets_valid 是有效标签的真实 ID
+                alpha_factor = self.alpha.to(targets_valid.device).gather(0, targets_valid)
+            else:
+                raise TypeError("alpha must be float, int or torch.Tensor.")
+            loss = -alpha_factor * focal_term * gathered_log_probs.squeeze(1)
+        else:
+            loss = -focal_term * gathered_log_probs.squeeze(1)
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:  # 'none'
+            return loss
 
 
 class MultiModalBartDecoder_MLM(nn.Module):
@@ -1738,59 +2205,113 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
     做出如下修改。 这里是SPD的部分  然后为了更新这个Prompt池相关的内容， 直接在此处计算完成损失函数，并直接返回，在总损失中将其整合。
     """
 
-    def __init__(self, config: MultiModalBartConfig, decoder, prompt_pool_num, diversity_loss_weight, l2_reg_weight):
+    def __init__(self, config: MultiModalBartConfig, decoder, prompt_pool_num, diversity_loss_weight, l2_reg_weight,
+                 is_few_shot, freeze_bart):
         super().__init__()
         self.config = config
         self.decoder = decoder
-        self.senti_prompt_linear = nn.Linear(768, 768)
-        # self.senti_prompt_linear = nn.Sequential(
-        #     nn.Linear(768, 768),
-        #     nn.GELU(),
-        #     nn.LayerNorm(768),
-        #     nn.Linear(768, 768)
-        # )
+        if freeze_bart:
+            for p in self.decoder.parameters():
+                p.requires_grad = False
+        # self.senti_prompt_linear = nn.Linear(768, 768)
+        self.senti_prompt_linear = nn.Sequential(
+            nn.Linear(768, 768),
+            nn.GELU(),
+            nn.LayerNorm(768),
+            nn.Linear(768, 768)
+        )
         # 添加部分：
         # 1、情绪Prompt池部分。这个维度保持与768一致
         self.prompt_pool = nn.Parameter(torch.randn(prompt_pool_num, 768))
         # 2、用于修正Prompt的转换器MLP
-        self.text_mlp = nn.Sequential(
-            nn.Linear(768, 768),
-            nn.GELU(),
-            nn.LayerNorm(768),
-            nn.Dropout(0.2),
-            nn.Linear(768, 768)
-        )
-        # 用于将Prompt也转换的MLP
-        self.prompt_mlp = nn.Sequential(
-            nn.Linear(768, 768),
-            nn.GELU(),
-            nn.LayerNorm(768),
-            nn.Dropout(0.2),
-            nn.Linear(768, 768)
-        )
+        if not is_few_shot:
+            self.text_mlp = nn.Sequential(
+                nn.Linear(768, 768),
+                nn.GELU(),
+                nn.LayerNorm(768),
+                nn.Dropout(0.2),
+                nn.Linear(768, 768)
+            )
+            # 用于将Prompt也转换的MLP
+            self.prompt_mlp = nn.Sequential(
+                nn.Linear(768, 768),
+                nn.GELU(),
+                nn.LayerNorm(768),
+                nn.Dropout(0.2),
+                nn.Linear(768, 768)
+            )
+        else:
+            self.text_mlp = nn.Sequential(
+                nn.Linear(768, 768),
+                nn.GELU(),
+                nn.LayerNorm(768),
+                nn.Dropout(0.2),
+                nn.Linear(768, 768)
+            )
+            # 用于将Prompt也转换的MLP
+            self.prompt_mlp = nn.Sequential(
+                nn.Linear(768, 768),
+                nn.GELU(),
+                nn.LayerNorm(768),
+                nn.Dropout(0.2),
+                nn.Linear(768, 768)
+            )
+        self.is_few_shot = is_few_shot
         # 注意力的头数也是一个可以修改的指标
-        self.attention = nn.MultiheadAttention(768, 4, dropout=0.2)  # 4头注意力
-        self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
-        # 方法3的权重计算方法的权重矩阵。
-        self.learnable_weight_matrix = nn.Parameter(torch.randn(768, 768))  # 假设特征维度是 768
+        # 5.31 集体下调 4，8，4，4，-> 2 4 2 2 (15没影响，17到是受影响了) 4 4 2 2
+        self.ffn = nn.Sequential(
+            nn.Linear(768, 768 * 4),
+            nn.GELU(), # 或者 nn.GELU()，GELU在Transformer中更常用
+            nn.Dropout(0.2),
+            nn.Linear(768 * 4, 768)
+        )
+        self.layer_norm1 = nn.LayerNorm(768)
+        self.layer_norm2 = nn.LayerNorm(768)
+        self.dropout1 = nn.Dropout(0.2)
+        self.dropout2 = nn.Dropout(0.2)
+        if not is_few_shot:
+            self.attention = nn.MultiheadAttention(768, 4, dropout=0.2)  # 4头注意力
+            self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
+            # 方法3的权重计算方法的权重矩阵。
+            self.learnable_weight_matrix = nn.Parameter(torch.randn(768, 768))  # 假设特征维度是 768
 
-        # 计算损失函数的权重
-        self.diversity_loss_weight = diversity_loss_weight
-        self.l2_reg_weight = l2_reg_weight
-        self.final_LayerNorm = nn.LayerNorm(768)
-        # 接下来是关于图像嵌入与文本嵌入的部分：
-        self.image_cross_attention = nn.MultiheadAttention(768, 8, dropout=0.2)  # 4头注意力
-        self.gate_proj_image = nn.Linear(768 * 2, 1)
-        # 名词增强部分
-        self.nouns_cross_attention = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.2)
-        self.gate_proj_nouns = nn.Linear(768 * 2, 1)
+            # 计算损失函数的权重
+            self.diversity_loss_weight = diversity_loss_weight
+            self.l2_reg_weight = l2_reg_weight
+            self.final_LayerNorm = nn.LayerNorm(768)
+            # 接下来是关于图像嵌入与文本嵌入的部分：
+            self.image_cross_attention = nn.MultiheadAttention(768, 6, dropout=0.2)  # 4头注意力
+            self.gate_proj_image = nn.Linear(768 * 2, 1)
+            # 名词增强部分
+            self.nouns_cross_attention = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.2)
+            self.gate_proj_nouns = nn.Linear(768 * 2, 1)
 
-        self.nouns_cross_attention_image = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.2)
-        self.gate_proj_nouns_image = nn.Linear(768 * 2, 1)
+            self.nouns_cross_attention_image = nn.MultiheadAttention(768, 4, batch_first=True, dropout=0.2)
+            self.gate_proj_nouns_image = nn.Linear(768 * 2, 1)
+        else:
+            # 4 4 2 2 dropout 0.2
+            self.attention = nn.MultiheadAttention(768, 8, dropout=0.2)  # 4头注意力
+            self.gate_proj = nn.Linear(768 * 2, 1)  # 门控融合层
+            # 方法3的权重计算方法的权重矩阵。
+            self.learnable_weight_matrix = nn.Parameter(torch.randn(768, 768))  # 假设特征维度是 768
+            # 计算损失函数的权重
+            self.diversity_loss_weight = diversity_loss_weight
+            self.l2_reg_weight = l2_reg_weight
+            self.final_LayerNorm = nn.LayerNorm(768)
+            # 接下来是关于图像嵌入与文本嵌入的部分：
+            self.image_cross_attention = nn.MultiheadAttention(768, 8, dropout=0.2)  # 4头注意力
+            self.gate_proj_image = nn.Linear(768 * 2, 1)
+            # 名词增强部分
+            self.nouns_cross_attention = nn.MultiheadAttention(768, 2, batch_first=True, dropout=0.1)
+            self.gate_proj_nouns = nn.Linear(768 * 2, 1)
+
+            self.nouns_cross_attention_image = nn.MultiheadAttention(768, 2, batch_first=True, dropout=0.1)
+            self.gate_proj_nouns_image = nn.Linear(768 * 2, 1)
 
     def forward(self, encoder_outputs, attention_mask,
                 decoder_input_ids, decoder_attention_mask,
-                sentence_mask, image_mask, noun_embeds, noun_mask, image_caption_valid, image_caption_mask):
+                sentence_mask, image_mask, noun_embeds, noun_mask, image_caption_valid, image_caption_mask,
+                score):
         # 增加部分3、利用原文的index指示器，我们只使用文本模态嵌入信息计算Prompt
         # import ipdb; ipdb.set_trace()
         # ---------------- 新增部分：
@@ -1806,33 +2327,39 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
         # 与图像字幕一起，如果有字幕用字幕， 没字幕用图像特征。 后续的图像特征 全部以sample_caption_embedding代替使用，
 
         caption_mask_expand = image_caption_mask.unsqueeze(-1).to(attention_mask.device)  # [b, s, 1]
-        image_caption_valid_expand = image_caption_valid.unsqueeze(-1).unsqueeze(-1).to(attention_mask.device)  # [b, 1, 1]
+        image_caption_valid_expand = image_caption_valid.unsqueeze(-1).unsqueeze(-1).to(
+            attention_mask.device)  # [b, 1, 1]
         caption = encoder_outputs * caption_mask_expand.float()
-        sample_caption_embedding = caption * image_caption_valid_expand + image_embeddings * (1 - image_caption_valid_expand)
-        sample_caption_mask = caption_mask_expand * image_caption_valid_expand + image_mask_expanded_for_image * (1 - image_caption_valid_expand)
+        sample_caption_embedding = caption * image_caption_valid_expand + image_embeddings * (
+                    1 - image_caption_valid_expand)
+        sample_caption_mask = caption_mask_expand * image_caption_valid_expand + image_mask_expanded_for_image * (
+                    1 - image_caption_valid_expand)
         sample_caption_embedding = sample_caption_embedding.to(attention_mask.device)
         sample_caption_mask = sample_caption_mask.to(attention_mask.device)
         sample_caption_mask = ~sample_caption_mask.squeeze(-1).bool()
 
+        # 6.1 不做这个名词集合增强
+        # ---------------------------------
+        # 名词集合增强部分
         # 再做任何操作前，先和名词做一个交叉注意力计算，让文本嵌入与更加关注特定的Aspect，也就是我们的目标
-        nouns_attn_output, attn_weights = self.nouns_cross_attention(
-            query=text_embeddings,
-            key=noun_embeds,
-            value=noun_embeds,
-            key_padding_mask=noun_mask,  # True 表示需要被掩码的位置
-            need_weights=True  # 返回注意力权重以便调试
-        )
-        # 直接相加 or 门控融合
-        # text_embeddings = text_embeddings + nouns_attn_output
-
-        gate_nouns = torch.sigmoid(self.gate_proj_nouns(torch.cat([text_embeddings, nouns_attn_output], dim=-1)))
-        text_embeddings = gate_nouns * text_embeddings + (1 - gate_nouns) * nouns_attn_output
-        # text_emb = text_embeddings.permute(1, 0, 2).to(attention_mask.device)  # [s,b,768]
-
-        encoder_outputs = encoder_outputs.masked_scatter(
-            mask_expanded_encoder,
-            text_embeddings[mask_expanded_encoder]
-        )
+        # nouns_attn_output, attn_weights = self.nouns_cross_attention(
+        #     query=text_embeddings,
+        #     key=noun_embeds,
+        #     value=noun_embeds,
+        #     key_padding_mask=noun_mask,  # True 表示需要被掩码的位置
+        #     need_weights=True  # 返回注意力权重以便调试
+        # )
+        # # 直接相加 or 门控融合
+        # # text_embeddings = text_embeddings + nouns_attn_output
+        #
+        # gate_nouns = torch.sigmoid(self.gate_proj_nouns(torch.cat([text_embeddings, nouns_attn_output], dim=-1)))
+        # text_embeddings = gate_nouns * text_embeddings + (1 - gate_nouns) * nouns_attn_output
+        # # text_emb = text_embeddings.permute(1, 0, 2).to(attention_mask.device)  # [s,b,768]
+        #
+        # encoder_outputs = encoder_outputs.masked_scatter(
+        #     mask_expanded_encoder,
+        #     text_embeddings[mask_expanded_encoder]
+        # )
         # 再对图像或者说字幕特征 做一个名词集合的修正
         # nouns_attn_output_image, attn_weights = self.nouns_cross_attention_image(
         #     query=image_embeddings,
@@ -1842,48 +2369,50 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
         #     need_weights=True  # 返回注意力权重以便调试
         # )
 
-        nouns_attn_output_image, attn_weights = self.nouns_cross_attention_image(
-            query=sample_caption_embedding,
-            key=noun_embeds,
-            value=noun_embeds,
-            key_padding_mask=noun_mask,  # True 表示需要被掩码的位置
-            need_weights=True  # 返回注意力权重以便调试
-        )
-        gate_nouns_image = torch.sigmoid(self.gate_proj_nouns_image(torch.cat([image_embeddings, nouns_attn_output_image], dim=-1)))
-        image_mask_expanded_for_image = image_mask_expanded_for_image.repeat(1, 1, encoder_outputs.size(2)).to(
-            attention_mask.device)
-        caption_mask_expand = caption_mask_expand.repeat(1, 1, encoder_outputs.size(2)).to(attention_mask.device)
-
-        updated_outputs = encoder_outputs.clone()
-        # 计算完毕在重新分配回去的部分
-        for i in range(image_embeddings.size(0)):
-            if image_caption_valid[i] == 1:  # 字幕信息可用
-                feature_mask = caption_mask_expand[i]
-                feature = sample_caption_embedding[i]
-                # print("wdd", feature.size(), nouns_attn_output_image.size())
-                feature = gate_nouns_image[i] * feature + (1 - gate_nouns_image[i]) * nouns_attn_output_image[i]
-                # print("ww", feature.size(), feature_mask.size())
-                updated_outputs[i] = updated_outputs[i].masked_scatter(
-                    feature_mask.bool(),
-                    feature[feature_mask]
-                )
-            else:
-                feature_mask = image_mask_expanded_for_image[i]
-                feature = sample_caption_embedding[i]
-                feature = gate_nouns_image[i] * feature + (1 - gate_nouns_image[i]) * nouns_attn_output_image[i]
-                updated_outputs[i] = updated_outputs[i].masked_scatter(
-                    feature_mask.bool(),
-                    feature[feature_mask]
-                )
-
-        # image_embeddings = gate_nouns_image * image_embeddings + (1 - gate_nouns_image) * nouns_attn_output_image
-        #
-        # #  把计算结果先放回去，
-        # encoder_outputs = encoder_outputs.masked_scatter(
-        #     image_mask_expanded_for_image,
-        #     image_embeddings[image_mask_expanded_for_image]
+        # nouns_attn_output_image, attn_weights = self.nouns_cross_attention_image(
+        #     query=sample_caption_embedding,
+        #     key=noun_embeds,
+        #     value=noun_embeds,
+        #     key_padding_mask=noun_mask,  # True 表示需要被掩码的位置
+        #     need_weights=True  # 返回注意力权重以便调试
         # )
-        encoder_outputs = updated_outputs
+        # gate_nouns_image = torch.sigmoid(
+        #     self.gate_proj_nouns_image(torch.cat([image_embeddings, nouns_attn_output_image], dim=-1)))
+        # image_mask_expanded_for_image = image_mask_expanded_for_image.repeat(1, 1, encoder_outputs.size(2)).to(
+        #     attention_mask.device)
+        # caption_mask_expand = caption_mask_expand.repeat(1, 1, encoder_outputs.size(2)).to(attention_mask.device)
+        #
+        # updated_outputs = encoder_outputs.clone()
+        # # 计算完毕在重新分配回去的部分
+        # for i in range(image_embeddings.size(0)):
+        #     if image_caption_valid[i] == 1:  # 字幕信息可用
+        #         feature_mask = caption_mask_expand[i]
+        #         feature = sample_caption_embedding[i]
+        #         # print("wdd", feature.size(), nouns_attn_output_image.size())
+        #         feature = gate_nouns_image[i] * feature + (1 - gate_nouns_image[i]) * nouns_attn_output_image[i]
+        #         # print("ww", feature.size(), feature_mask.size())
+        #         updated_outputs[i] = updated_outputs[i].masked_scatter(
+        #             feature_mask.bool(),
+        #             feature[feature_mask]
+        #         )
+        #     else:
+        #         feature_mask = image_mask_expanded_for_image[i]
+        #         feature = sample_caption_embedding[i]
+        #         feature = gate_nouns_image[i] * feature + (1 - gate_nouns_image[i]) * nouns_attn_output_image[i]
+        #         updated_outputs[i] = updated_outputs[i].masked_scatter(
+        #             feature_mask.bool(),
+        #             feature[feature_mask]
+        #         )
+        #
+        # # image_embeddings = gate_nouns_image * image_embeddings + (1 - gate_nouns_image) * nouns_attn_output_image
+        # #
+        # # #  把计算结果先放回去，
+        # # encoder_outputs = encoder_outputs.masked_scatter(
+        # #     image_mask_expanded_for_image,
+        # #     image_embeddings[image_mask_expanded_for_image]
+        # # )
+        # encoder_outputs = updated_outputs
+        # -------------------------------------------
 
         image_embeddings_new = encoder_outputs * image_mask_expanded_for_image.float()  # 提取图像嵌入
         image_emb = image_embeddings_new.permute(1, 0, 2).to(attention_mask.device)  # [s, b, 768]  图像嵌入，准备作为 Key/Value
@@ -1891,10 +2420,13 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
         text_emb = text_embeddings_new.permute(1, 0, 2).to(attention_mask.device)  # [s,b,768]
         caption = encoder_outputs * caption_mask_expand.float()
         sample_caption_embedding = caption * image_caption_valid_expand + image_embeddings * (
-                    1 - image_caption_valid_expand).to(attention_mask.device)
+                1 - image_caption_valid_expand).to(attention_mask.device)
         sample_caption_embedding_att = sample_caption_embedding.permute(1, 0, 2).to(attention_mask.device)
 
+        # -----------------------------------
+        # 添加的融合信息部分：
         # 扩展prompt池到batch维度 [prompt_num, b, 768]
+
         prompt_pool = self.prompt_pool.unsqueeze(1).expand(-1, text_emb.size(1), -1).to(attention_mask.device)
         # print("text 维度", text_emb.size())
         # 注意力计算 [s,b,768]
@@ -1904,41 +2436,47 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
             value=prompt_pool,
             key_padding_mask=None
         )
-
+        # Transformer型的处理
+        final_features = self.layer_norm1(text_emb + self.dropout1(attn_output))
+        ffn_output = self.ffn(final_features)
+        final_features = self.layer_norm2(final_features + self.dropout2(ffn_output))
+        final_features = final_features.permute(1, 0, 2)
         # MLP处理 ------------------------------------------------------
-        mlp_output = self.prompt_mlp(attn_output.permute(1, 0, 2)).to(attention_mask.device)  # [b,s,768]
-        text_mlp = self.text_mlp(text_embeddings).to(attention_mask.device)  # [b,s,768]
-        # print("计算权重前两者维度", mlp_output.shape, text_mlp.shape)
-        # 权重计算与融合 -------------------------------------------------
+        # mlp_output = self.prompt_mlp(attn_output.permute(1, 0, 2)).to(attention_mask.device)  # [b,s,768]
+        # text_mlp = self.text_mlp(text_embeddings).to(attention_mask.device)  # [b,s,768]
+        # # print("计算权重前两者维度", mlp_output.shape, text_mlp.shape)
+        # # 权重计算与融合 -------------------------------------------------
+        # # weights = self.compute_correlation_weights_learnable(text_mlp, mlp_output)  # [b, n, n]
+        #
         # weights = self.compute_correlation_weights_learnable(text_mlp, mlp_output)  # [b, n, n]
+        # # 加权融合原始文本特征
+        # # print("两种维度大小", weights.shape, text_embeddings.shape)
+        # # prompt_text = attn_output.permute(1, 0, 2)
+        #
+        # enhanced_text = torch.matmul(weights, text_embeddings)  # [b,s,768] 好像之前成这个结果也很高呢。
+        # # enhanced_text = torch.matmul(weights, mlp_output)
+        # enhanced_text = enhanced_text.to(attention_mask.device)
+        # # 融合Prompt信息和原文的文本嵌入表示
+        # # 在forward方法中添加：
+        # gate = torch.sigmoid(self.gate_proj(torch.cat([text_embeddings, enhanced_text], dim=-1)))
+        #
+        # # 方式1： 直接将门控机制运用在原始和Prompt上
+        # # final_features = gate * text_embeddings + (1 - gate) * enhanced_text
+        # # 方式2: 在运用门控机制的同时，把原始信息放在两个部分，尽可能保证原始信息居多，不会被Prompt过多干扰。
+        # # 调整一下需不需要保证原始信息居多的情况
+        #
+        # final_features = gate * text_embeddings + (1 - gate) * (
+        #             text_embeddings + enhanced_text)  # 门控加法，注意这里是 text_embeddings + enhanced_text 的加法结果参与门控
 
-        weights = self.compute_correlation_weights_cosine(text_mlp, mlp_output)  # [b, n, n]
-        # 加权融合原始文本特征
-        # print("两种维度大小", weights.shape, text_embeddings.shape)
-        # prompt_text = attn_output.permute(1, 0, 2)
-
-        enhanced_text = torch.matmul(weights, text_embeddings)  # [b,s,768] 好像之前成这个结果也很高呢。
-        # enhanced_text = torch.matmul(weights, mlp_output)
-        enhanced_text = enhanced_text.to(attention_mask.device)
-        # 融合Prompt信息和原文的文本嵌入表示
-        # 在forward方法中添加：
-        gate = torch.sigmoid(self.gate_proj(torch.cat([text_embeddings, enhanced_text], dim=-1)))
-
-        # 方式1： 直接将门控机制运用在原始和Prompt上
-        # final_features = gate * text_embeddings + (1 - gate) * enhanced_text
-        # 方式2: 在运用门控机制的同时，把原始信息放在两个部分，尽可能保证原始信息居多，不会被Prompt过多干扰。
-        # 调整一下需不需要保证原始信息居多的情况
-        final_features = gate * text_embeddings + (1 - gate) * (text_embeddings + enhanced_text)  # 门控加法，注意这里是 text_embeddings + enhanced_text 的加法结果参与门控
-        # final_features = gate * text_embeddings + (1 - gate) * (enhanced_text)
-
-        # 方式3: 跳过这个修正部分，
+        # 方式3: 直接相加
+        # final_features = text_embeddings + enhanced_text
 
         final_features = final_features.to(attention_mask.device)
         # 再把信息放回text_embedding的部分。
         text_emb_for_image_attn = text_embeddings.permute(1, 0, 2).to(
             attention_mask.device)  # 使用 Prompt 增强后的文本表示 final_features 作为 Query (需要调整维度顺序)
 
-        #----------- 再增加与图像嵌入的修正部分
+        # ----------- 再增加与图像嵌入的修正部分
         # 注意力计算 [s,b,768]
         # image_cross_attn_output, _ = self.image_cross_attention(  # 图像交叉注意力计算
         #     query=final_features.permute(1, 0, 2).to(attention_mask.device),  # Query: Prompt 增强后的文本表示
@@ -1947,35 +2485,41 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
         #     key_padding_mask=None  # 图像部分是否需要 padding mask？ 根据实际情况添加
         # )  # image_cross_attn_output: [s, b, 768]  图像交叉注意力输出
         # 用综合的信息来计算交叉注意力。
-        image_cross_attn_output, _ = self.image_cross_attention(  # 图像交叉注意力计算
-            query=final_features.permute(1, 0, 2).to(attention_mask.device),  # Query: Prompt 增强后的文本表示
-            key=sample_caption_embedding_att,  # Key: 图像嵌入
-            value=sample_caption_embedding_att,  # Value: 图像嵌入
-            key_padding_mask=sample_caption_mask  # 图像部分是否需要 padding mask？ 根据实际情况添加
-        )
-        image_cross_attn_output_result = image_cross_attn_output.permute(1, 0, 2)
-        gate_image = torch.sigmoid(self.gate_proj_image(torch.cat([final_features, image_cross_attn_output_result],
-                                                        dim=-1)))
-        # 把融合的特征也放入其中。
-        # 调整一下需不需要保证原始信息居多的情况
-        final_features = gate_image * final_features + (1 - gate_image) * (final_features + image_cross_attn_output_result)
-
+        # image_cross_attn_output, _ = self.image_cross_attention(  # 图像交叉注意力计算
+        #     query=final_features.permute(1, 0, 2).to(attention_mask.device),  # Query: Prompt 增强后的文本表示
+        #     key=sample_caption_embedding_att,  # Key: 图像嵌入
+        #     value=sample_caption_embedding_att,  # Value: 图像嵌入
+        #     key_padding_mask=sample_caption_mask  # 图像部分是否需要 padding mask？ 根据实际情况添加
+        # )
+        # image_cross_attn_output_result = image_cross_attn_output.permute(1, 0, 2)
+        #
+        # #
+        # gate_image = torch.sigmoid(self.gate_proj_image(torch.cat([final_features, image_cross_attn_output_result],
+        #                                                           dim=-1)))
+        # # 把融合的特征也放入其中。
+        # # 调整一下需不需要保证原始信息居多的情况
+        # final_features = gate_image * final_features + (1 - gate_image) * (
+        #             final_features + image_cross_attn_output_result)
+        #
         # final_features = gate_image * final_features + (1 - gate_image) * (image_cross_attn_output_result)
-
-        # 也增加残差链接和归一化
-        # final_features = final_features + text_embeddings
-        # final_features = self.final_LayerNorm(final_features)
-
-        # print("用于放回encoder结果的维度", mask_expanded.repeat(1, 1, final_features.size(2)).shape)
-        mask_expanded_encoder = mask_expanded.repeat(1, 1, final_features.size(2)).to(attention_mask.device)
-        encoder_outputs = encoder_outputs.masked_scatter(
-            mask_expanded_encoder,
-            final_features[mask_expanded_encoder]
-        )
+        # # 将相似度修改到这里的融合阶段来用相关度调整增强部分的贡献 (更温和)
+        # # 如果相关度低，那么增强部分的贡献就小
+        # # final_features = final_features + score * (final_features - image_cross_attn_output_result)
+        # # 也增加残差链接和归一化
+        # # final_features = final_features + text_embeddings
+        # # final_features = self.final_LayerNorm(final_features)
+        #
+        # # print("用于放回encoder结果的维度", mask_expanded.repeat(1, 1, final_features.size(2)).shape)
+        # mask_expanded_encoder = mask_expanded.repeat(1, 1, final_features.size(2)).to(attention_mask.device)
+        # encoder_outputs = encoder_outputs.masked_scatter(
+        #     mask_expanded_encoder,
+        #     final_features[mask_expanded_encoder]
+        # )
         # -----------------
         decoder_outputs = self.decoder(
             input_ids=decoder_input_ids,  # 情感提示模板的token索引（如特殊占位符序列）
-            encoder_hidden_states=encoder_outputs,  # 多模态编码器的综合输出
+            # encoder_hidden_states=encoder_outputs,  # 多模态编码器的综合输出
+            encoder_hidden_states=final_features,
             encoder_padding_mask=attention_mask.eq(0),  # 将padding位置设为True
             decoder_padding_mask=decoder_attention_mask.eq(0),  # 过滤padding位置
             decoder_causal_mask=None,
@@ -1985,11 +2529,11 @@ class MultiModalBartDecoder_generate_sentiment_prompt(nn.Module):
         senti_prompt_logits = self.senti_prompt_linear(prompt_logits)
 
         # --- 新增：计算和返回损失函数 并将损失直接返回---
-        diversity_loss = self.diversity_loss_cosine_distance()
-        l2_reg_loss = self.l2_regularization_loss()
-        # orthogonal_loss = self.orthogonal_regularization()
-        l2_reg_loss = l2_reg_loss
-
+        # diversity_loss = self.diversity_loss_cosine_distance()
+        # l2_reg_loss = self.l2_regularization_loss()
+        # # orthogonal_loss = self.orthogonal_regularization()
+        # l2_reg_loss = l2_reg_loss
+        l2_reg_loss = diversity_loss = torch.tensor(0.0, dtype=torch.float)
         return senti_prompt_logits, diversity_loss, l2_reg_loss
 
     def compute_correlation_weights(self, tensor1, tensor2):

@@ -211,6 +211,7 @@ class ConditionTokenizer:
             self.mapping2id[key] = key_id[0]
             self.mapping2targetid[key] = len(self.mapping2targetid) + 2
         print(self.mapping2id)
+        print("文本下标的偏移值", len(self.mapping2targetid) + 2)
         self.nlp = spacy.load("en_core_web_sm")
 
         # --- SenticNet 初始化 ---

@@ -96,6 +96,7 @@ class SequenceGeneratorModel(nn.Module):
                 score=None,
                 caption_nouns=None,
                 sentence_nouns=None,
+                training=None,
                 first=None):
         """
         透传调用seq2seq_model的forward
@@ -119,7 +120,8 @@ class SequenceGeneratorModel(nn.Module):
                                   image_caption_mask=image_caption_mask,
                                   score=score,
                                   caption_nouns=caption_nouns,
-                                  sentence_nouns=sentence_nouns)
+                                  sentence_nouns=sentence_nouns,
+                                  training=training)
 
     def predict(self,
                 input_ids,
@@ -143,12 +145,12 @@ class SequenceGeneratorModel(nn.Module):
         :return:
         """
         # import ipdb; ipdb.set_trace()
-        state, aspects_num_loss, predict_aspects_num, pseudo_loss, _ = self.BART_model.prepare_state(
+        state, aspects_num_loss, predict_aspects_num, pseudo_loss, _, hidden_state, logits, _ = self.BART_model.prepare_state(
             input_ids, image_features,
             attention_mask,
             aesc_infos,
             aspects_num, sentence_mask, image_mask, mlm_message, image_caption_valid, image_caption_mask, score,
-            caption_nouns, sentence_nouns)
+            caption_nouns, sentence_nouns, Training=False)
         tgt_tokens = aesc_infos['labels'].to(input_ids.device)
         # print("预测时的信息 tgt_tokens", tgt_tokens)
         # print("前三个token 和后面的信息", tgt_tokens[:, :3], tgt_tokens[:, 3:])

@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from collections import Counter
 from datetime import datetime
 
 import transformers
@@ -20,7 +21,7 @@ from src.data.tokenization_new_for_generated_prompt import ConditionTokenizer
 from src.model.config import MultiModalBartConfig
 from src.model.MAESC_model_for_generated_senti_prompt import MultiModalBartModel_AESC
 from src.model.model import MultiModalBartModelForPretrain
-from src.training_multitasks import fine_tune
+from src.training_multitasks import fine_tune, fine_tune_classifier
 from src.utils import Logger, save_training_data, load_training_data, setup_process, cleanup_process
 from src.model.metrics import AESCSpanMetric, OESpanMetric
 from src.model.generater_for_generated_prompt import SequenceGeneratorModel
@@ -194,13 +195,13 @@ def main(rank, args):
                               pin_memory=True,
                               collate_fn=collate_twitter_sc)
     dev_loader = DataLoader(dataset=dev_dataset,
-                            batch_size=args.batch_size,
+                            batch_size=args.batch_size * 2,
                             shuffle=False,
                             num_workers=args.num_workers,
                             pin_memory=True,
                             collate_fn=collate_twitter_sc)
     test_loader = DataLoader(dataset=test_dataset,
-                             batch_size=args.batch_size,
+                             batch_size=args.batch_size * 2,
                              shuffle=False,
                              num_workers=args.num_workers,
                              pin_memory=True,
@@ -215,9 +216,72 @@ def main(rank, args):
     best_dev_res = None
     best_dev_test_res = None
     best_test_res = None
+    best_dev_res_mAP = None
+    best_dev_test_res_mAP = None
+    best_test_res_mAP = None
     # res_dev = eval_utils.eval(args, model, dev_loader, metric, device)
     # for name, param in model.named_parameters():
     #     print(name, param.shape)
+    best_dev_res_classifier = None
+    best_dev_test_res_classifier = None
+    best_test_res_classifier = None
+    pos_num = 0
+    neg_num = 0
+    neu_num = 0
+    for i, batch in enumerate(dev_loader):
+        if args.task == 'twitter_sc':
+            aesc_infos = {
+                key: value
+                for key, value in batch['TWITTER_SC'].items()
+            }
+        sentiment_label_ids = [3, 4, 5]
+
+        # 调用函数统计
+        sentiment_counts = get_sentiment_proportions(aesc_infos['spans'], sentiment_label_ids)
+
+        # 遍历情感ID列表，获取每个ID的计数
+        pos_num += sentiment_counts[3]
+        neu_num += sentiment_counts[4]
+        neg_num += sentiment_counts[5]
+    print("验证集各个情绪数量 pos neu neg", pos_num, neu_num, neg_num)
+
+    pos_num = 0
+    neg_num = 0
+    neu_num = 0
+    for i, batch in enumerate(test_loader):
+        if args.task == 'twitter_sc':
+            aesc_infos = {
+                key: value
+                for key, value in batch['TWITTER_SC'].items()
+            }
+        sentiment_label_ids = [3, 4, 5]
+
+        # 调用函数统计
+        sentiment_counts = get_sentiment_proportions(aesc_infos['spans'], sentiment_label_ids)
+
+        # 遍历情感ID列表，获取每个ID的计数
+        pos_num += sentiment_counts[3]
+        neu_num += sentiment_counts[4]
+        neg_num += sentiment_counts[5]
+    print("测试集各个情绪数量 pos neu neg", pos_num, neu_num, neg_num)
+
+    sentiment_counts = Counter()
+    sentiment_label_ids = [3, 4, 5]
+    for i, batch in enumerate(train_loader):
+        if args.task == 'twitter_sc':
+            aesc_infos = {
+                key: value
+                for key, value in batch['TWITTER_SC'].items()
+            }
+        for sample_result in aesc_infos['spans']:  # 遍历 batch 中的每个样本
+            for aspect_senti_pair in sample_result:  # 遍历样本中的每个三元组
+                sentiment_id = aspect_senti_pair[2]  # 情感 ID 是三元组的第三个元素
+                if sentiment_id in sentiment_label_ids:  # 确保是有效的情感 ID
+                    sentiment_counts[sentiment_id] += 1
+    print("总数", sentiment_counts)
+    torch.autograd.set_detect_anomaly(True)  # 检测反向传播异常
+    torch.set_printoptions(precision=10)  # 打印详细数值
+    # args.is_classifier = False
     while epoch < args.epochs:
         logger.info('Epoch {}'.format(epoch + 1), pad=True)
         fine_tune(epoch=epoch,
@@ -233,51 +297,112 @@ def main(rank, args):
                   log_interval=1,
                   tb_writer=tb_writer,
                   tb_interval=1,
-                  scaler=scaler)
-
+                  scaler=scaler,
+                  # sentiment_counts=sentiment_counts
+                  )
         print('test!!!!!!!!!!!!!!')
         if (epoch + 1) % args.eval_every == 0:
             # train_dev = eval_utils.eval(model, train_loader, metric, device)
-            res_dev = eval_utils.eval(args, model, dev_loader, metric, device)
-            res_test = eval_utils.eval(args, model, test_loader, metric,
+            res_dev, res_classifier_dev, mAP_dev = eval_utils.eval(args, model, dev_loader, metric, device)
+            res_test, res_classifier_test, mAP_test = eval_utils.eval(args, model, test_loader, metric,
                                        device)
             # print('sc_all_num', res_test['sc_all_num'])
             logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
                 res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
-            logger.info('DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
-                res_dev['sc_pre'], res_dev['sc_rec'], res_dev['sc_f']))
-            logger.info('DEV  sc_acc:{}'.format(res_dev['sc_acc']))
+            if args.is_classifier:
+                logger.info('DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+                    res_classifier_dev['sc_pre'], res_classifier_dev['sc_rec'], res_classifier_dev['sc_f']))
+                logger.info('DEV  sc_acc:{}'.format(res_classifier_dev['sc_acc']))
+            else:
+                logger.info('DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+                    res_dev['sc_pre'], res_dev['sc_rec'], res_dev['sc_f']))
+                logger.info('DEV  sc_acc:{}'.format(res_dev['sc_acc']))
+                logger.info('DEV sc_mAP{}'.format(mAP_dev))
             logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
                 res_test['ae_pre'], res_test['ae_rec'], res_test['ae_f']))
-            logger.info('TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
-                res_test['sc_pre'], res_test['sc_rec'], res_test['sc_f']))
-            logger.info('TEST  sc_acc:{}'.format(res_test['sc_acc']))
-
+            if args.is_classifier:
+                logger.info('TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+                    res_classifier_test['sc_pre'], res_classifier_test['sc_rec'], res_classifier_test['sc_f']))
+                logger.info('TEST  sc_acc:{}'.format(res_classifier_test['sc_acc']))
+            else:
+                logger.info('TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+                    res_test['sc_pre'], res_test['sc_rec'], res_test['sc_f']))
+                logger.info('TEST  sc_acc:{}'.format(res_test['sc_acc']))
+                logger.info('TEST sc_mAP{}'.format(mAP_test))
+            # logger.info('confusion_matrix dev:{} test:{}'.format(res_dev['confusion_matrix'], res_test['confusion_matrix']))
             # logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
             #     res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
-            save_flag = False
-            if best_dev_res is None:
-                best_dev_res = res_dev
-                best_dev_test_res = res_test
+            if args.is_classifier:
+                save_flag = False
+                if best_dev_res_classifier is None:
+                    best_dev_res_classifier = res_classifier_dev
+                    best_dev_test_res_classifier = res_classifier_test
+                    best_dev_res = res_dev
+                    best_dev_res_mAP = mAP_dev
+                    best_dev_test_res = res_test
+                    best_dev_test_res_mAP = mAP_test
+                # 其实应该以f1作为比较对象，而非acc
+                else:
+                    # if best_dev_res['sc_acc'] < res_dev['sc_acc']:
+                    if best_dev_res_classifier['sc_f'] < res_classifier_dev['sc_f']:
+                        best_dev_res_classifier = res_classifier_dev
+                        best_dev_test_res_classifier = res_classifier_test
+                        best_dev_res = res_dev
 
+                        best_dev_test_res = res_test
+                        best_dev_res_mAP = mAP_dev
+                        best_dev_test_res_mAP = mAP_test
+
+                if best_test_res_classifier is None:
+                    best_test_res_classifier = res_classifier_test
+                    best_test_res = res_test
+                    best_test_res_mAP = mAP_test
+                    save_flag = True
+                else:
+                    # if best_test_res['sc_acc'] < res_test['sc_acc']:
+                    if best_test_res_classifier['sc_f'] < res_classifier_test['sc_f']:
+                        best_test_res_classifier = res_classifier_test
+                        best_test_res = res_test
+                        best_test_res_mAP = mAP_test
+                        save_flag = True
+
+                if args.is_check == 1 and save_flag:
+                    current_checkpoint_path = os.path.join(checkpoint_path,
+                                                           args.check_info)
+                    model.seq2seq_model.save_pretrained(current_checkpoint_path)
+                    print('save model!!!!!!!!!!!')
             else:
-                if best_dev_res['sc_acc'] < res_dev['sc_acc']:
+                save_flag = False
+                if best_dev_res is None:
                     best_dev_res = res_dev
                     best_dev_test_res = res_test
+                    best_dev_res_mAP = mAP_dev
+                    best_dev_test_res_mAP = mAP_test
+                # 其实应该以f1作为比较对象，而非acc
+                else:
+                    # if best_dev_res['sc_acc'] < res_dev['sc_acc']:
+                    if best_dev_res['sc_f'] < res_dev['sc_f']:
+                        best_dev_res = res_dev
+                        best_dev_test_res = res_test
+                        best_dev_res_mAP = mAP_dev
+                        best_dev_test_res_mAP = mAP_test
 
-            if best_test_res is None:
-                best_test_res = res_test
-                save_flag = True
-            else:
-                if best_test_res['sc_acc'] < res_test['sc_acc']:
+                if best_test_res is None:
                     best_test_res = res_test
+                    best_test_res_mAP = mAP_test
                     save_flag = True
+                else:
+                    # if best_test_res['sc_acc'] < res_test['sc_acc']:
+                    if best_test_res['sc_f'] < res_test['sc_f']:
+                        best_test_res = res_test
+                        best_test_res_mAP = mAP_test
+                        save_flag = True
 
-            if args.is_check == 1 and save_flag:
-                current_checkpoint_path = os.path.join(checkpoint_path,
-                                                       args.check_info)
-                model.seq2seq_model.save_pretrained(current_checkpoint_path)
-                print('save model!!!!!!!!!!!')
+                if args.is_check == 1 and save_flag:
+                    current_checkpoint_path = os.path.join(checkpoint_path,
+                                                           args.check_info)
+                    model.seq2seq_model.save_pretrained(current_checkpoint_path)
+                    print('save model!!!!!!!!!!!')
         epoch += 1
     logger.info("Training complete in: " + str(datetime.now() - start),
                 pad=True)
@@ -285,31 +410,253 @@ def main(rank, args):
     logger.info('BEST DEV:-----')
     logger.info('BEST DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
         best_dev_res['ae_pre'], best_dev_res['ae_rec'], best_dev_res['ae_f']))
-    logger.info('BEST DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
-        best_dev_res['sc_pre'], best_dev_res['sc_rec'], best_dev_res['sc_f']))
-    logger.info('BEST DEV  sc_acc:{}'.format(best_dev_res['sc_acc']))
+    if args.is_classifier:
+        logger.info('BEST DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+            best_dev_res_classifier['sc_pre'], best_dev_res_classifier['sc_rec'], best_dev_res_classifier['sc_f']))
+        logger.info('BEST DEV  sc_acc:{}'.format(best_dev_res_classifier['sc_acc']))
+        logger.info('confusion_matrix dev:')
+        logger.info(best_dev_res_classifier['confusion_matrix'])
+    else:
+        logger.info('BEST DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+            best_dev_res['sc_pre'], best_dev_res['sc_rec'], best_dev_res['sc_f']))
+        logger.info('BEST DEV  sc_acc:{}'.format(best_dev_res['sc_acc']))
+        logger.info('confusion_matrix dev:')
+        logger.info(best_dev_res['confusion_matrix'])
+        logger.info('mAP:{}'.format(best_dev_res_mAP))
 
     logger.info('BEST DEV TEST:-----')
     logger.info('BEST DEV--TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
         best_dev_test_res['ae_pre'], best_dev_test_res['ae_rec'],
         best_dev_test_res['ae_f']))
-    logger.info('BEST DEV--TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
-        best_dev_test_res['sc_pre'], best_dev_test_res['sc_rec'],
-        best_dev_test_res['sc_f']))
-    logger.info('BEST DEV--TEST  sc_acc:{}'.format(
-        best_dev_test_res['sc_acc']))
+    if args.is_classifier:
+        logger.info('BEST DEV--TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+            best_dev_test_res_classifier['sc_pre'], best_dev_test_res_classifier['sc_rec'],
+            best_dev_test_res_classifier['sc_f']))
+        logger.info('BEST DEV--TEST  sc_acc:{}'.format(
+            best_dev_test_res_classifier['sc_acc']))
+        logger.info('confusion_matrix test:')
+        logger.info(best_dev_test_res_classifier['confusion_matrix'])
+    else:
+        logger.info('BEST DEV--TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+            best_dev_test_res['sc_pre'], best_dev_test_res['sc_rec'],
+            best_dev_test_res['sc_f']))
+        logger.info('BEST DEV--TEST  sc_acc:{}'.format(
+            best_dev_test_res['sc_acc']))
+        logger.info('confusion_matrix test:')
+        logger.info(best_dev_test_res['confusion_matrix'])
+        logger.info('mAP:{}'.format(best_dev_test_res_mAP))
 
     logger.info('BEST TEST:-----')
     logger.info('BEST TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
         best_test_res['ae_pre'], best_test_res['ae_rec'],
         best_test_res['ae_f']))
-    logger.info('BEST TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
-        best_test_res['sc_pre'], best_test_res['sc_rec'],
-        best_test_res['sc_f']))
-    logger.info('BEST TEST  sc_acc:{}'.format(best_test_res['sc_acc']))
+    if args.is_classifier:
+        logger.info('BEST TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+            best_test_res_classifier['sc_pre'], best_test_res_classifier['sc_rec'],
+            best_test_res_classifier['sc_f']))
+        logger.info('BEST TEST  sc_acc:{}'.format(best_test_res_classifier['sc_acc']))
+        logger.info('confusion_matrix test:')
+        logger.info(best_test_res_classifier['confusion_matrix'])
+    else:
+        logger.info('BEST TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+            best_test_res['sc_pre'], best_test_res['sc_rec'],
+            best_test_res['sc_f']))
+        logger.info('BEST TEST  sc_acc:{}'.format(best_test_res['sc_acc']))
+        logger.info('confusion_matrix test:')
+        logger.info(best_test_res['confusion_matrix'])
+        logger.info('mAP:{}'.format(best_test_res_mAP))
+    # 第二轮对分类器单独训练
+    # logger.info('Training For Classifier Layers')
+    # epoch = 0
+    # start = datetime.now()
+    # args.is_classifier = True
+    # while epoch < args.epochs:
+    #     logger.info('Epoch {}'.format(epoch + 1), pad=True)
+    #     fine_tune_classifier(epoch=epoch,
+    #               model=model,
+    #               train_loader=train_loader,
+    #               test_loader=test_loader,
+    #               metric=metric,
+    #               optimizer=optimizer,
+    #               args=args,
+    #               device=device,
+    #               logger=logger,
+    #               callback=callback,
+    #               log_interval=1,
+    #               tb_writer=tb_writer,
+    #               tb_interval=1,
+    #               scaler=scaler,
+    #               # sentiment_counts=sentiment_counts
+    #               )
+    #
+    #     print('test!!!!!!!!!!!!!!')
+    #     if (epoch + 1) % args.eval_every == 0:
+    #         # train_dev = eval_utils.eval(model, train_loader, metric, device)
+    #         res_dev, res_classifier_dev = eval_utils.eval(args, model, dev_loader, metric, device)
+    #         res_test, res_classifier_test = eval_utils.eval(args, model, test_loader, metric,
+    #                                    device)
+    #         # print('sc_all_num', res_test['sc_all_num'])
+    #         logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+    #             res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
+    #         if args.is_classifier:
+    #             logger.info('DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #                 res_classifier_dev['sc_pre'], res_classifier_dev['sc_rec'], res_classifier_dev['sc_f']))
+    #             logger.info('DEV  sc_acc:{}'.format(res_classifier_dev['sc_acc']))
+    #         else:
+    #             logger.info('DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #                 res_dev['sc_pre'], res_dev['sc_rec'], res_dev['sc_f']))
+    #             logger.info('DEV  sc_acc:{}'.format(res_dev['sc_acc']))
+    #         logger.info('TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+    #             res_test['ae_pre'], res_test['ae_rec'], res_test['ae_f']))
+    #         if args.is_classifier:
+    #             logger.info('TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #                 res_classifier_test['sc_pre'], res_classifier_test['sc_rec'], res_classifier_test['sc_f']))
+    #             logger.info('TEST  sc_acc:{}'.format(res_classifier_test['sc_acc']))
+    #         else:
+    #             logger.info('TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #                 res_test['sc_pre'], res_test['sc_rec'], res_test['sc_f']))
+    #             logger.info('TEST  sc_acc:{}'.format(res_test['sc_acc']))
+    #         # logger.info('confusion_matrix dev:{} test:{}'.format(res_dev['confusion_matrix'], res_test['confusion_matrix']))
+    #         # logger.info('DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+    #         #     res_dev['ae_pre'], res_dev['ae_rec'], res_dev['ae_f']))
+    #         if args.is_classifier:
+    #             save_flag = False
+    #             if best_dev_res_classifier is None:
+    #                 best_dev_res_classifier = res_classifier_dev
+    #                 best_dev_test_res_classifier = res_classifier_test
+    #                 best_dev_res = res_dev
+    #                 best_dev_test_res = res_test
+    #             # 其实应该以f1作为比较对象，而非acc
+    #             else:
+    #                 # if best_dev_res['sc_acc'] < res_dev['sc_acc']:
+    #                 if best_dev_res_classifier['sc_f'] < res_classifier_dev['sc_f']:
+    #                     best_dev_res_classifier = res_classifier_dev
+    #                     best_dev_test_res_classifier = res_classifier_test
+    #                     best_dev_res = res_dev
+    #                     best_dev_test_res = res_test
+    #
+    #             if best_test_res_classifier is None:
+    #                 best_test_res_classifier = res_classifier_test
+    #                 best_test_res = res_test
+    #                 save_flag = True
+    #             else:
+    #                 # if best_test_res['sc_acc'] < res_test['sc_acc']:
+    #                 if best_test_res_classifier['sc_f'] < res_classifier_test['sc_f']:
+    #                     best_test_res_classifier = res_classifier_test
+    #                     best_test_res = res_test
+    #                     save_flag = True
+    #
+    #             if args.is_check == 1 and save_flag:
+    #                 current_checkpoint_path = os.path.join(checkpoint_path,
+    #                                                        args.check_info)
+    #                 model.seq2seq_model.save_pretrained(current_checkpoint_path)
+    #                 print('save model!!!!!!!!!!!')
+    #         else:
+    #             save_flag = False
+    #             if best_dev_res is None:
+    #                 best_dev_res = res_dev
+    #                 best_dev_test_res = res_test
+    #             # 其实应该以f1作为比较对象，而非acc
+    #             else:
+    #                 # if best_dev_res['sc_acc'] < res_dev['sc_acc']:
+    #                 if best_dev_res['sc_f'] < res_dev['sc_f']:
+    #                     best_dev_res = res_dev
+    #                     best_dev_test_res = res_test
+    #
+    #             if best_test_res is None:
+    #                 best_test_res = res_test
+    #                 save_flag = True
+    #             else:
+    #                 # if best_test_res['sc_acc'] < res_test['sc_acc']:
+    #                 if best_test_res['sc_f'] < res_test['sc_f']:
+    #                     best_test_res = res_test
+    #                     save_flag = True
+    #
+    #             if args.is_check == 1 and save_flag:
+    #                 current_checkpoint_path = os.path.join(checkpoint_path,
+    #                                                        args.check_info)
+    #                 model.seq2seq_model.save_pretrained(current_checkpoint_path)
+    #                 print('save model!!!!!!!!!!!')
+    #     epoch += 1
+    # logger.info("Training complete in: " + str(datetime.now() - start),
+    #             pad=True)
+    # logger.info('---------------------------')
+    # logger.info('BEST DEV:-----')
+    # logger.info('BEST DEV  ae_p:{} ae_r:{} ae_f:{}'.format(
+    #     best_dev_res['ae_pre'], best_dev_res['ae_rec'], best_dev_res['ae_f']))
+    # if args.is_classifier:
+    #     logger.info('BEST DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #         best_dev_res_classifier['sc_pre'], best_dev_res_classifier['sc_rec'], best_dev_res_classifier['sc_f']))
+    #     logger.info('BEST DEV  sc_acc:{}'.format(best_dev_res_classifier['sc_acc']))
+    #     logger.info('confusion_matrix dev:')
+    #     logger.info(best_dev_res_classifier['confusion_matrix'])
+    # else:
+    #     logger.info('BEST DEV  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #         best_dev_res['sc_pre'], best_dev_res['sc_rec'], best_dev_res['sc_f']))
+    #     logger.info('BEST DEV  sc_acc:{}'.format(best_dev_res['sc_acc']))
+    #     logger.info('confusion_matrix dev:')
+    #     logger.info(best_dev_res['confusion_matrix'])
+    #
+    # logger.info('BEST DEV TEST:-----')
+    # logger.info('BEST DEV--TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+    #     best_dev_test_res['ae_pre'], best_dev_test_res['ae_rec'],
+    #     best_dev_test_res['ae_f']))
+    # if args.is_classifier:
+    #     logger.info('BEST DEV--TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #         best_dev_test_res_classifier['sc_pre'], best_dev_test_res_classifier['sc_rec'],
+    #         best_dev_test_res_classifier['sc_f']))
+    #     logger.info('BEST DEV--TEST  sc_acc:{}'.format(
+    #         best_dev_test_res_classifier['sc_acc']))
+    #     logger.info('confusion_matrix test:')
+    #     logger.info(best_dev_test_res_classifier['confusion_matrix'])
+    # else:
+    #     logger.info('BEST DEV--TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #         best_dev_test_res['sc_pre'], best_dev_test_res['sc_rec'],
+    #         best_dev_test_res['sc_f']))
+    #     logger.info('BEST DEV--TEST  sc_acc:{}'.format(
+    #         best_dev_test_res['sc_acc']))
+    #     logger.info('confusion_matrix test:')
+    #     logger.info(best_dev_test_res['confusion_matrix'])
+    #
+    # logger.info('BEST TEST:-----')
+    # logger.info('BEST TEST  ae_p:{} ae_r:{} ae_f:{}'.format(
+    #     best_test_res['ae_pre'], best_test_res['ae_rec'],
+    #     best_test_res['ae_f']))
+    # if args.is_classifier:
+    #     logger.info('BEST TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #         best_test_res_classifier['sc_pre'], best_test_res_classifier['sc_rec'],
+    #         best_test_res_classifier['sc_f']))
+    #     logger.info('BEST TEST  sc_acc:{}'.format(best_test_res_classifier['sc_acc']))
+    #     logger.info('confusion_matrix test:')
+    #     logger.info(best_test_res_classifier['confusion_matrix'])
+    # else:
+    #     logger.info('BEST TEST  sc_p:{} sc_r:{} sc_f:{}'.format(
+    #         best_test_res['sc_pre'], best_test_res['sc_rec'],
+    #         best_test_res['sc_f']))
+    #     logger.info('BEST TEST  sc_acc:{}'.format(best_test_res['sc_acc']))
+    #     logger.info('confusion_matrix test:')
+    #     logger.info(best_test_res['confusion_matrix'])
 
     if not args.cpu:
         cleanup_process()
+
+
+def get_sentiment_proportions(batch_results, sentiment_label_ids):
+    """
+    统计一个 batch 中每个情感 ID 的出现比例。
+
+    :param batch_results: 一个 batch 的 Aspect-Sentiment 三元组列表。
+                          例如：[[[s,e,senti_id], ...], [[s,e,senti_id], ...], ...]
+    :param sentiment_label_ids: list, 包含所有有效情感 ID 的列表，例如 [3, 4, 5]。
+    :return: Counter, 每个情感 ID 及其出现次数。
+    """
+    sentiment_counts = Counter()
+    for sample_result in batch_results:  # 遍历 batch 中的每个样本
+        for aspect_senti_pair in sample_result:  # 遍历样本中的每个三元组
+            sentiment_id = aspect_senti_pair[2]  # 情感 ID 是三元组的第三个元素
+            if sentiment_id in sentiment_label_ids:  # 确保是有效的情感 ID
+                sentiment_counts[sentiment_id] += 1
+    return sentiment_counts
 
 
 def parse_args():
@@ -468,8 +815,14 @@ def parse_args():
     parser.add_argument('--Prompt_Pool_num', type=int, default=8, help="The number of PromptPool")
     parser.add_argument('--diversity_loss_weight', type=float, default=0.1, help='The weight of diversity_loss')
     parser.add_argument('--l2_reg_weight', type=float, default=0.0001, help='The weight of l2_reg')
-    # 0.00003 -> 0.0001
+    # 0.00003 -> 0.00005
     parser.add_argument('--mlm_enabled', type=str, default=True, help='MLM Loss in CTTA')
+    # 是否是少样本
+    parser.add_argument('--is_few_shot', type=str, default=True, help='当前是否是少样本数据集')
+    # 是否采用分类代替生成的 默认为False
+    parser.add_argument('--is_classifier', action='store_true', help='')
+    parser.add_argument('--freeze_bart', action='store_true', help='')
+
     args = parser.parse_args()
 
     if args.gpu_num != 1 and args.cpu:

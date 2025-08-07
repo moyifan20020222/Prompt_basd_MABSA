@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+from collections import Counter
 from datetime import datetime
 from torch import optim, nn
 import torch
@@ -45,34 +46,16 @@ for logger_name in logging.root.manager.loggerDict:
 
 
 def get_parameter_number(model):
-    for name, param in model.named_parameters():
-        if param.requires_grad:  # 只统计可训练的参数
-            print(f"Name: {name}, Size: {param.size()}, Requires Grad: {param.requires_grad}")
+    # for name, param in model.named_parameters():
+    #     if param.requires_grad:  # 只统计可训练的参数
+    #         print(f"Name: {name}, Size: {param.size()}, Requires Grad: {param.requires_grad}")
     total_num = sum(p.numel() for p in model.parameters())
     trainable_num = sum(p.numel() for p in model.parameters() if p.requires_grad)
     return {'Total': total_num, 'Trainable': trainable_num}
 
 
 def main(rank, args):
-    # ------- 添加分布式的代码
-    # if args.distributed:
-    #     setup_process(rank, args.world_size, args.dist_backend, args.dist_url, args.master_port)
-    #     torch.cuda.set_device(rank)
-    #     print(f"Rank {rank} is using GPU: {torch.cuda.current_device()}")
-    #     # 启用CUDA内核启动的异步执行
-    #     # torch.cuda.set_stream(torch.cuda.Stream())
-    #     # # 设置cudnn基准模式以加速卷积操作
-    #     # torch.backends.cudnn.benchmark = True
-    #     # 设置随机种子
-    #     if args.seed is not None:
-    #         random.seed(args.seed)
-    #         np.random.seed(args.seed)
-    #         torch.manual_seed(args.seed)
-    #         torch.cuda.manual_seed_all(args.seed)
-    #         cudnn.deterministic = True
-    #         cudnn.benchmark = False
 
-    # ----------------
     timestamp = datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     checkpoint_path = os.path.join(args.checkpoint_dir, timestamp)
     tb_writer = None
@@ -236,6 +219,58 @@ def main(rank, args):
     best_dev_test_res = None
     best_test_res = None
     # res_dev = eval_utils.eval(model, dev_loader, metric, device)
+
+    pos_num = 0
+    neg_num = 0
+    neu_num = 0
+    for i, batch in enumerate(dev_loader):
+        aesc_infos = {
+            key: value
+            for key, value in batch['AESC'].items()
+        }
+        sentiment_label_ids = [3, 4, 5]
+
+        # 调用函数统计
+        sentiment_counts = get_sentiment_proportions(aesc_infos['spans'], sentiment_label_ids)
+
+        # 遍历情感ID列表，获取每个ID的计数
+        pos_num += sentiment_counts[3]
+        neu_num += sentiment_counts[4]
+        neg_num += sentiment_counts[5]
+    print("验证集各个情绪数量 pos neu neg", pos_num, neu_num, neg_num)
+
+    pos_num = 0
+    neg_num = 0
+    neu_num = 0
+    for i, batch in enumerate(test_loader):
+        aesc_infos = {
+            key: value
+            for key, value in batch['AESC'].items()
+        }
+        sentiment_label_ids = [3, 4, 5]
+
+        # 调用函数统计
+        sentiment_counts = get_sentiment_proportions(aesc_infos['spans'], sentiment_label_ids)
+
+        # 遍历情感ID列表，获取每个ID的计数
+        pos_num += sentiment_counts[3]
+        neu_num += sentiment_counts[4]
+        neg_num += sentiment_counts[5]
+    print("测试集各个情绪数量 pos neu neg", pos_num, neu_num, neg_num)
+
+    sentiment_counts = Counter()
+    sentiment_label_ids = [3, 4, 5]
+    for i, batch in enumerate(train_loader):
+        aesc_infos = {
+            key: value
+            for key, value in batch['AESC'].items()
+        }
+        for sample_result in aesc_infos['spans']:  # 遍历 batch 中的每个样本
+            for aspect_senti_pair in sample_result:  # 遍历样本中的每个三元组
+                sentiment_id = aspect_senti_pair[2]  # 情感 ID 是三元组的第三个元素
+                if sentiment_id in sentiment_label_ids:  # 确保是有效的情感 ID
+                    sentiment_counts[sentiment_id] += 1
+    print("总数", sentiment_counts)
     while epoch < args.epochs:
         # --------- 新增分布式架构部分：
         # if args.distributed:
@@ -254,7 +289,9 @@ def main(rank, args):
                   log_interval=1,
                   tb_writer=tb_writer,
                   tb_interval=1,
-                  scaler=scaler)
+                  scaler=scaler,
+                  # sentiment_counts=sentiment_counts
+                  )
 
         print('test!!!!!!!!!!!!!!')
         if (epoch + 1) % args.eval_every == 0:
@@ -316,6 +353,24 @@ def main(rank, args):
     # dist.destroy_process_group()
     # if not args.cpu:
     #     cleanup_process()
+
+
+def get_sentiment_proportions(batch_results, sentiment_label_ids):
+    """
+    统计一个 batch 中每个情感 ID 的出现比例。
+
+    :param batch_results: 一个 batch 的 Aspect-Sentiment 三元组列表。
+                          例如：[[[s,e,senti_id], ...], [[s,e,senti_id], ...], ...]
+    :param sentiment_label_ids: list, 包含所有有效情感 ID 的列表，例如 [3, 4, 5]。
+    :return: Counter, 每个情感 ID 及其出现次数。
+    """
+    sentiment_counts = Counter()
+    for sample_result in batch_results:  # 遍历 batch 中的每个样本
+        for aspect_senti_pair in sample_result:  # 遍历样本中的每个三元组
+            sentiment_id = aspect_senti_pair[2]  # 情感 ID 是三元组的第三个元素
+            if sentiment_id in sentiment_label_ids:  # 确保是有效的情感 ID
+                sentiment_counts[sentiment_id] += 1
+    return sentiment_counts
 
 
 def parse_args():
