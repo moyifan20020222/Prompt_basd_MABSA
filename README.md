@@ -56,3 +56,4 @@ https://hf-mirror.com/Salesforce/blip-itm-base-coco
 https://drive.google.com/drive/folders/1NgPH5xhz5dF-Zwxe-8CjjsgQJ5VaQ8KL?usp=sharing
 但原始部分缺失了部分图像信息，所以需要单独去找完整的Twitter数据集：
 IJCAI2019_data
+https://drive.google.com/file/d/1PpvvncnQkgDNeBMKVgG2zFYuRhbL873g/view
